@@ -55,6 +55,13 @@ test('shared voting, private archives, publication, backup recovery, and auth bo
   const fake=browser();fake.cookies.set('visitor','a'.repeat(64));fake.csrf=guest.csrf;
   assert.equal((await call(fake,'/api/votes','POST',{entryId:one.data.id})).status,403);
   assert.equal((await call(guest,'/api/messages','POST',{author:'Guest',message:'<script>alert(1)</script>'})).status,201);
+  assert.equal((await call(guest,'/api/messages','POST',{author:'fucccckkkk',message:'That shiiittt costume is fuckk good!'})).status,201);
+  const filtered=app.locals.db.prepare("SELECT author,message FROM messages WHERE author='**'").get();
+  assert.equal(filtered.message,'That ** costume is ** good!');
+  app.locals.db.prepare('INSERT INTO messages VALUES (?,?,?,?,0,?)').run('legacy-swear',created.data.id,'biiitch','fucccckkkk',new Date(clock).toISOString());
+  const filteredState=await call(guest,'/api/state');const legacy=filteredState.data.messages.find(m=>m.id==='legacy-swear');
+  assert.equal(legacy.author,'**');assert.equal(legacy.message,'**');
+
   assert.equal((await call(host,'/api/host/winners','PUT',{contestId,category:'Best Overall',entryId:one.data.id})).status,409);
   clock=Date.parse('2026-11-01T01:30:00Z'); // 20:30 CDT, entries closed but voting open
   assert.equal((await entry(guest,'Late')).status,403);

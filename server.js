@@ -1,3 +1,4 @@
+import {censorMessage,censorBoardMessage} from './scripts/profanity.js';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import multer from 'multer';
@@ -159,7 +160,7 @@ export function createApp(options = {}) {
     res.json({ csrf: req.visitor.csrf, host: !!req.hostAuth, localPreview, demoMode, serverTime: now(), phase: currentPhase,
       contest: c ? { id: c.id, title: c.title, settings: c.settings } : null,
       entries: visible ? entryRows(c.id).filter(e => req.hostAuth || !e.hidden).map(e => entryView(e, req.hostAuth, req.visitor.id)) : [],
-      messages: visible ? db.prepare(`SELECT id, author, message, hidden FROM messages WHERE contest_id=? ${req.hostAuth ? '' : 'AND hidden=0'} ORDER BY created DESC LIMIT 100`).all(c.id) : [],
+      messages: visible ? db.prepare(`SELECT id, author, message, hidden FROM messages WHERE contest_id=? ${req.hostAuth ? '' : 'AND hidden=0'} ORDER BY created DESC LIMIT 100`).all(c.id).map(censorBoardMessage) : [],
       myVotes: c ? db.prepare('SELECT category, entry_id AS entryId FROM votes WHERE contest_id=? AND voter=?').all(c.id, req.visitor.id) : [],
       winners, ...(req.hostAuth?{nextPartyUndo:undoInfo(c)}:{}) });
   });
@@ -343,7 +344,7 @@ export function createApp(options = {}) {
   });
   app.post('/api/messages', limiter(5), (req, res) => {
     const c = active(); if (!isOpen(c)) fail(403, 'The message board is closed.');
-    const author = text(req.body.author, 60, true), message = text(req.body.message, 300, true);
+    const author = censorMessage(text(req.body.author, 60, true)), message = censorMessage(text(req.body.message, 300, true));
     if (db.prepare('SELECT COUNT(*) AS n FROM messages WHERE contest_id=?').get(c.id).n >= 1000) fail(409, 'The message board is full.');
     db.prepare('INSERT INTO messages VALUES (?,?,?,?,0,?)').run(randomUUID(), c.id, author, message, new Date(now()).toISOString()); res.status(201).json({ ok: true });
   });
@@ -355,7 +356,7 @@ export function createApp(options = {}) {
   });
   app.get('/api/host/contests/:id/archive', hostOnly, (req, res) => {
     const c = getContest(req.params.id); if (!c) fail(404, 'Contest not found.');
-    res.json({ contest: c, entries: entryRows(c.id).map(e => entryView(e, true)), messages: db.prepare('SELECT id,author,message,hidden FROM messages WHERE contest_id=? ORDER BY created DESC').all(c.id), winners: db.prepare('SELECT category,entry_id AS entryId FROM winners WHERE contest_id=?').all(c.id) });
+    res.json({ contest: c, entries: entryRows(c.id).map(e => entryView(e, true)), messages: db.prepare('SELECT id,author,message,hidden FROM messages WHERE contest_id=? ORDER BY created DESC').all(c.id).map(censorBoardMessage), winners: db.prepare('SELECT category,entry_id AS entryId FROM winners WHERE contest_id=?').all(c.id) });
   });
   app.post('/api/host/moderate', hostOnly, (req, res) => {
     if (!['entries', 'messages'].includes(req.body.type) || typeof req.body.hidden !== 'boolean') fail(400, 'Invalid moderation request.');
