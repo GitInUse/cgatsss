@@ -156,8 +156,8 @@
   }
   window.switchView=switchView;
   function renderLoginMode(){
-    $('host-auth-modal').querySelector('h3').textContent=usingRecoveryCode?'Host Recovery Code':data?.localPreview?'Host PIN':'Host Password';
-    $('host-pin-input').placeholder=usingRecoveryCode?'Enter saved recovery code...':data?.localPreview?'Enter host PIN...':'Enter host password...';
+    $('host-auth-modal').querySelector('h3').textContent=usingRecoveryCode?'Host Recovery Code':(data?.localPreview||data?.demoMode)?'Host PIN':'Host Password';
+    $('host-pin-input').placeholder=usingRecoveryCode?'Enter saved recovery code...':(data?.localPreview||data?.demoMode)?'Enter host PIN...':'Enter host password...';
     $('host-auth-modal').querySelector('p').textContent=usingRecoveryCode?'Use your saved recovery code if the regular PIN no longer works.':'Enter your host PIN or password. This is verified by the server.';
     $('host-recovery-toggle').textContent=usingRecoveryCode?'Use regular PIN / password':'Use recovery code instead';
   }

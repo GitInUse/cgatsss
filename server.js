@@ -77,8 +77,8 @@ export function createApp(options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   const demoMode = process.env.DEMO_MODE === 'true';
   const localPreview = options.localPreview === true && !production;
-  const password = options.password ?? process.env.HOST_PASSWORD ?? (localPreview ? '1031' : undefined);
-  const validPreviewPin = localPreview && /^\d{4,8}$/.test(password || '');
+  const password = options.password ?? (demoMode ? '1031' : process.env.HOST_PASSWORD ?? (localPreview ? '1031' : undefined));
+  const validPreviewPin = (localPreview || demoMode) && /^\d{4,8}$/.test(password || '');
   if (!password || (password.length < 12 && !validPreviewPin)) throw new Error('Set HOST_PASSWORD to a unique password of at least 12 characters.');
   const origin = options.origin || process.env.PUBLIC_ORIGIN || (production && process.env.RENDER_EXTERNAL_URL);
   if(production){

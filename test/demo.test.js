@@ -13,9 +13,12 @@ test('free sample explicitly allows temporary storage while preserving productio
  try{
   process.env.RENDER='true';delete process.env.DEMO_MODE;process.env.REQUIRE_PERSISTENT_DISK='false';
   assert.throws(()=>createApp(options),/Persistent disk/);
-  process.env.DEMO_MODE='true';app=createApp(options);
+  process.env.DEMO_MODE='true';app=createApp({...options,password:undefined});
   const stateResponse=await request(app,'https://sample.onrender.com/api/state');
   const state=JSON.parse(Buffer.from(await stateResponse.arrayBuffer()).toString());
+  const headers={Origin:options.origin,'Content-Type':'application/json','X-CSRF-Token':state.csrf,Cookie:stateResponse.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ')};
+  const login=await request(app,options.origin+'/api/login',{method:'POST',headers,body:JSON.stringify({password:'1031'})});
+  assert.equal(login.status,200);assert.match(login.headers.getSetCookie()[0],/Secure/);
   assert.equal(state.demoMode,true);assert.equal(state.host,false);assert.equal(state.localPreview,false);
   assert.equal((await request(app,'https://sample.onrender.com/api/host/contests')).status,401);
   assert.equal((await request(app,'https://sample.onrender.com/data/party.sqlite')).status,404);
