@@ -45,6 +45,9 @@
     syncing=request;try{await request;}finally{if(syncing===request)syncing=null;}
   }
   function render(){
+    let demoNotice=$('demo-notice');
+    if(data.demoMode&&!demoNotice){demoNotice=node('div','p-3 text-center text-xs','FREE SAMPLE — Use test photos only. Photos, votes, messages and settings may reset when this service sleeps, restarts or updates.');demoNotice.id='demo-notice';demoNotice.setAttribute('role','note');document.body.prepend(demoNotice);}
+    if(demoNotice)demoNotice.hidden=!data.demoMode;
     const c=data.contest,openNow=isOpen();
     $('host-auth-label').textContent=data.host?'Host Dashboard':'Host Unlock';
     renderLoginMode();

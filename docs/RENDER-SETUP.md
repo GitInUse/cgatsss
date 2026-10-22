@@ -100,3 +100,9 @@ The included GitHub workflow runs the production build and tests for `main` and 
 - [Persistent disks and their limitations](https://render.com/docs/disks)
 - [GitHub automatic deployments](https://render.com/docs/deploys)
 - [Cloudflare DNS with Render](https://render.com/docs/configure-cloudflare-dns)
+
+## Free sample only
+
+Use the same render-production source and Node commands, but select Free, remove the disk, set DEMO_MODE=true, DATA_DIR=/tmp/geech-demo, and REQUIRE_PERSISTENT_DISK=false. Omit PERSISTENT_DISK_PATH and PUBLIC_ORIGIN. Keep NODE_ENV=production and both private host credentials. Use only disposable sample data; the free filesystem resets on sleep, restart, or redeploy. A visible sample notice is enabled by DEMO_MODE. Do not restore real data into this service. Keep the existing custom domain unchanged until a separately approved cutover.
+
+The paid Blueprint remains the durable production configuration. Before upgrading for real use, turn DEMO_MODE off, require and attach the persistent disk, and verify backups. Existing local private data is never copied by deployment.

@@ -75,6 +75,7 @@ export function createApp(options = {}) {
   const privateRelative=path.relative(realpathSync(path.join(root,'public')),resolveStoragePath(dataDir));
   if(privateRelative===''||(!privateRelative.startsWith('..'+path.sep)&&privateRelative!=='..'&&!path.isAbsolute(privateRelative)))throw new Error('DATA_DIR must be outside public/. Database files and uploads must stay private.');
   const production = options.production ?? process.env.NODE_ENV === 'production';
+  const demoMode = process.env.DEMO_MODE === 'true';
   const localPreview = options.localPreview === true && !production;
   const password = options.password ?? process.env.HOST_PASSWORD ?? (localPreview ? '1031' : undefined);
   const validPreviewPin = localPreview && /^\d{4,8}$/.test(password || '');
@@ -84,7 +85,7 @@ export function createApp(options = {}) {
     try{const url=new URL(origin);if(url.protocol!=='https:'||url.origin!==origin)throw new Error();}
     catch{throw new Error('Set PUBLIC_ORIGIN to the exact https website origin (no trailing slash).');}
   }
-  if (production && (process.env.RENDER || process.env.REQUIRE_PERSISTENT_DISK==='true')) {
+  if (production && ((process.env.RENDER && !demoMode) || process.env.REQUIRE_PERSISTENT_DISK==='true')) {
     const mountPath=process.env.PERSISTENT_DISK_PATH||'/var/data';
     if(process.platform!=='linux'||!isPersistentPath(dataDir,mountPath,readFileSync('/proc/self/mountinfo','utf8')))throw new Error('Persistent disk is missing. Mount the Render disk at PERSISTENT_DISK_PATH and keep DATA_DIR within it before deploying.');
   }
@@ -155,7 +156,7 @@ export function createApp(options = {}) {
     const c = active(), currentPhase = phase(c, now());
     const visible = c && (req.hostAuth || isOpen(c));
     const winners = db.prepare(`SELECT e.*, c.title, w.published FROM winners w JOIN entries e ON e.id=w.entry_id JOIN contests c ON c.id=w.contest_id ORDER BY w.published DESC`).all().map(e => ({ ...entryView(e), contestTitle: e.title }));
-    res.json({ csrf: req.visitor.csrf, host: !!req.hostAuth, localPreview, serverTime: now(), phase: currentPhase,
+    res.json({ csrf: req.visitor.csrf, host: !!req.hostAuth, localPreview, demoMode, serverTime: now(), phase: currentPhase,
       contest: c ? { id: c.id, title: c.title, settings: c.settings } : null,
       entries: visible ? entryRows(c.id).filter(e => req.hostAuth || !e.hidden).map(e => entryView(e, req.hostAuth, req.visitor.id)) : [],
       messages: visible ? db.prepare(`SELECT id, author, message, hidden FROM messages WHERE contest_id=? ${req.hostAuth ? '' : 'AND hidden=0'} ORDER BY created DESC LIMIT 100`).all(c.id) : [],
