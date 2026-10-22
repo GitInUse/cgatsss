@@ -7,7 +7,7 @@
   const startRequestId=()=>`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
   let data=null,view='main',filter='All',pendingVote=null,editId=null,lightboxEntryId=null,photo=null,photoURL=null,newContest=false;
   let wizardStep=1,wizardMode='guest',wizardCategories=[...defaults],archive=null,loadedContestId=null,privacyTimer=null;
-  let syncing=null,offset=0,loginInFlight=false,usingRecoveryCode=false;
+  let syncing=null,offset=0,loginInFlight=false;
   let nextPartySource=null,nextPartyDraft=null,nextPartyBusy=false;
   let hallItems=[],hallEditId=null,hallSaving=false;
   const action=fn=>async(...args)=>{try{return await fn(...args);}catch(e){status(e.message);}};
@@ -156,16 +156,15 @@
   }
   window.switchView=switchView;
   function renderLoginMode(){
-    $('host-auth-modal').querySelector('h3').textContent=usingRecoveryCode?'Host Recovery Code':(data?.localPreview||data?.demoMode)?'Host PIN':'Host Password';
-    $('host-pin-input').placeholder=usingRecoveryCode?'Enter saved recovery code...':(data?.localPreview||data?.demoMode)?'Enter host PIN...':'Enter host password...';
-    $('host-auth-modal').querySelector('p').textContent=usingRecoveryCode?'Use your saved recovery code if the regular PIN no longer works.':'Enter your host PIN or password. This is verified by the server.';
-    $('host-recovery-toggle').textContent=usingRecoveryCode?'Use regular PIN / password':'Use recovery code instead';
+    $('host-auth-modal').querySelector('h3').textContent=(data?.localPreview||data?.demoMode)?'Host PIN':'Host Password';
+    $('host-pin-input').placeholder=(data?.localPreview||data?.demoMode)?'Enter host PIN...':'Enter host password...';
+    $('host-auth-modal').querySelector('p').textContent='Enter your host PIN or password. This is verified by the server.';
   }
   window.openHostAuthModal=()=>data?.host?switchView('host'):open('host-auth-modal');window.closeHostAuthModal=()=>close('host-auth-modal');
   window.authenticateHost=action(async()=>{
     if(loginInFlight)return;if(!data?.csrf)throw new Error('Still connecting to the server. Wait a moment and try again.');
     loginInFlight=true;const unlock=$('host-unlock-submit');unlock.disabled=true;
-    try{const value=$('host-pin-input').value.trim();await api(usingRecoveryCode?'/api/recovery-login':'/api/login','POST',usingRecoveryCode?{code:value}:{password:value});await refresh();if(!data.host)throw new Error('Sign-in could not be confirmed. Please try again.');$('host-pin-input').value='';close('host-auth-modal');switchView('host');}
+    try{const value=$('host-pin-input').value.trim();await api('/api/login','POST',{password:value});await refresh();if(!data.host)throw new Error('Sign-in could not be confirmed. Please try again.');$('host-pin-input').value='';close('host-auth-modal');switchView('host');}
     finally{loginInFlight=false;unlock.disabled=false;}
   });
   window.lockHostSession=action(async()=>{await api('/api/logout','POST',{});archive=null;$('archive-entries').replaceChildren();$('archive-results').replaceChildren();await refresh();switchView('main');});
@@ -328,7 +327,6 @@
     window[match[1]](...args);
   });
   $('host-unlock-submit').addEventListener('click',e=>{e.preventDefault();window.authenticateHost();});
-  $('host-recovery-toggle').addEventListener('click',()=>{usingRecoveryCode=!usingRecoveryCode;$('host-pin-input').value='';status();renderLoginMode();});
   for(const mode of ['guest','host_only','hybrid'])$(`sub-mode-${mode}-btn`).addEventListener('click',()=>window.setWizardSubmissionMode(mode));
   $('lightbox-vote').addEventListener('click',()=>{const id=lightboxEntryId;if(!id||$('lightbox-vote').disabled)return;closeLightbox();window.openVoteConfirmModal(id);});
   $('host-pin-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();window.authenticateHost();}});

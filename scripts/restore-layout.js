@@ -8,7 +8,6 @@ html = html.replace('</head>', '<link rel="icon" type="image/png" sizes="64x64" 
 html = html.replace(/<div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-500 to-purple-600 flex items-center justify-center text-lg shadow-md shadow-orange-500\/20">\s*📸\s*<\/div>/, '<img src="/party/assets/championship-logo.png" class="championship-page-icon" width="64" height="44" alt="Geech’s Halloween Costume Champion" />');
 html = html.replace(/\bon(click|change|submit)="([^"]*)"/g, (_, event, code) => `data-on${event}="${code}"`);
 html = html.replace('data-onclick="authenticateHost()"', 'id="host-unlock-submit" type="button"');
-html = html.replace(/(<input[^>]*id="host-pin-input"[^>]*\/?>)/, '$1<button type="button" id="host-recovery-toggle" class="text-xs text-orange-300">Use recovery code instead</button>');
 html = html.replace('<div id="wizard-step-1-content" class="space-y-4">', '<div id="wizard-step-1-content" class="space-y-4"><label class="block text-xs">Party name<input id="wizard-contest-title" type="text" maxlength="100" class="w-full bg-black/60 border border-gray-700 rounded-xl p-3" placeholder="e.g. Geech’s Halloween Party"></label>');
 html = html.replace('<div id="wizard-step-3-content"', '<p id="wizard-save-status" role="status" aria-live="polite" class="text-sm text-orange-300"></p><div id="wizard-step-3-content"');
 html = html.replace('data-onclick="finishHostWizard()"', 'id="wizard-launch" type="button" data-onclick="finishHostWizard()"');

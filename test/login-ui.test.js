@@ -174,8 +174,8 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   context.openWizardModal();context.goToWizardStep(2);
   assert.equal($('sub-mode-hybrid-btn').getAttribute('aria-pressed'),'true');
   await context.lockHostSession();context.openHostAuthModal();
-  $('host-recovery-toggle').dispatch('click');
-  assert.equal($('host-auth-modal').querySelector('h3').textContent,'Host Recovery Code');
+  assert.equal($('host-recovery-toggle'),null);
+  assert.equal($('host-auth-modal').querySelector('h3').textContent,'Host PIN');
   $('host-pin-input').value=recoveryCode;$('host-unlock-submit').dispatch('click');
   for(let i=0;i<30;i++)await tick();
   assert.equal($('view-host').classList.contains('hidden'),false);
