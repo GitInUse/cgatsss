@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: idontthinkiwill
+    runtime: node
+    # Keep the existing GitHub Pages main branch unchanged during the cutover.
+    branch: render-production
+    plan: starter
+    region: oregon
+    buildCommand: corepack pnpm install --frozen-lockfile && corepack pnpm run build
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    # Takes effect only if the owner creates/syncs this Blueprint in Render.
+    autoDeployTrigger: checksPass
+    disk:
+      name: private-party-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: DATA_DIR
+        value: /var/data
+      - key: REQUIRE_PERSISTENT_DISK
+        value: "true"
+      - key: PERSISTENT_DISK_PATH
+        value: /var/data
+      - key: HOST_PASSWORD
+        sync: false
+      - key: HOST_RECOVERY_CODE
+        sync: false
+      - key: PUBLIC_ORIGIN
+        # First deploy uses RENDER_EXTERNAL_URL. Set the custom origin after DNS/TLS verification.
+        value: ""

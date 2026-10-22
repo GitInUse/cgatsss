@@ -1,0 +1,5 @@
+allowBuilds:
+  sharp: true
+# Installs are explicit and frozen in Render/CI; running a script must not
+# silently install packages or rewrite the lockfile.
+verifyDepsBeforeRun: false

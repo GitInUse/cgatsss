@@ -1,0 +1,10 @@
+{
+  "name": "idontthinkiwill",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" },
+  "packageManager": "pnpm@11.25.0",
+  "scripts": { "build": "node scripts/build.js", "start": "node server.js", "preview": "node scripts/preview.js", "test": "node --test test/*.test.js", "backup": "node scripts/full-backup.js", "restore:full": "node scripts/restore-full.js", "restore": "node scripts/restore.js", "check:release": "node scripts/check-release.js" },
+  "dependencies": { "express": "^5.1.0", "express-rate-limit": "^8.2.0", "luxon": "^3.7.2", "multer": "^2.0.2", "sharp": "^0.34.5", "archiver": "^7.0.1", "unzipper": "^0.12.3", "qrcode": "^1.5.4" }
+}

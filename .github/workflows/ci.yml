@@ -1,0 +1,28 @@
+name: Production checks
+on:
+  push:
+    branches: [main, render-production]
+  pull_request:
+    branches: [main, render-production]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned dependencies
+        run: corepack pnpm install --frozen-lockfile
+      - name: Production build
+        run: corepack pnpm run build
+      - name: Tests (temporary databases only)
+        run: corepack pnpm test
