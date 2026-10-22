@@ -9,6 +9,9 @@ html = html.replace(/<div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-orang
 html = html.replace(/\bon(click|change|submit)="([^"]*)"/g, (_, event, code) => `data-on${event}="${code}"`);
 html = html.replace('data-onclick="authenticateHost()"', 'id="host-unlock-submit" type="button"');
 html = html.replace(/(<input[^>]*id="host-pin-input"[^>]*\/?>)/, '$1<button type="button" id="host-recovery-toggle" class="text-xs text-orange-300">Use recovery code instead</button>');
+html = html.replace('<div id="wizard-step-1-content" class="space-y-4">', '<div id="wizard-step-1-content" class="space-y-4"><label class="block text-xs">Party name<input id="wizard-contest-title" type="text" maxlength="100" class="w-full bg-black/60 border border-gray-700 rounded-xl p-3" placeholder="e.g. Geech’s Halloween Party"></label>');
+html = html.replace('<div id="wizard-step-3-content"', '<p id="wizard-save-status" role="status" aria-live="polite" class="text-sm text-orange-300"></p><div id="wizard-step-3-content"');
+html = html.replace('data-onclick="finishHostWizard()"', 'id="wizard-launch" type="button" data-onclick="finishHostWizard()"');
 for(const mode of ['guest','host_only','hybrid'])html=html.replace(`data-onclick="setWizardSubmissionMode('${mode}')"`, `aria-pressed="${mode==='guest'}"`);
 html = html.replace('Choose who takes and uploads the contestant photos.</p>', 'Choose who takes and uploads the contestant photos.</p><p id="wizard-mode-status" class="text-xs text-purple-300" role="status" aria-live="polite">Selected: Guest Self-Upload</p>');
 html = html.replace('>Gallery</span>', '>Home</span>').replace('Back to Gallery', 'Back to Home').replace('Party Photo Feed 📸', 'Geech’s Halloween Costume Contest').replace('Live Entrants Feed', 'Costume Contest').replace('Submit Photo to Feed', 'Submit Contest Entry').replace('🗳️ Voting Feed', '🗳️ Contest Entries');

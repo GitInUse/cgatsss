@@ -129,13 +129,13 @@
     renderHostCategories();
   }
   function renderHostCategories(){if(!data?.host)return;const list=$('host-categories-list');list.replaceChildren();for(const cat of (newContest?wizardCategories:data.contest?.settings.categories||defaults)){const pill=node('span','inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-950/60 border border-purple-500/40 text-xs text-purple-200',cat);pill.append(button('×',()=>window.removeHostCategory(cat),'text-red-400'));list.append(pill);}}
-  async function saveSettings(overrides={}){
+  async function saveSettings(overrides={},confirmSave=true){
     if(!data.host)throw new Error('Host login required.');
     const c=newContest?null:data.contest,old=c?.settings||{};
     const settings={...old,timezone:'America/Chicago',start:$('host-party-datetime').value,entriesClose:$('host-entries-close-datetime').value,end:$('host-event-close-datetime').value,categories:old.categories||wizardCategories,submissionMode:$('host-submission-mode').value,announcement:$('host-announcement-input').value,override:$('host-event-status-override').value,theme:old.theme||'halloween',...overrides};
     settings.tagline=$('host-tagline').value.trim();
     const title=$('host-contest-title').value.trim();if(!title)throw new Error('Enter a contest name in the host panel first.');
-    if(!confirm(c?'Save this schedule and settings? Photos are public only within the scheduled party hours.':'Create the new contest? Previous years and photos are kept privately.'))return false;
+    if(confirmSave&&!confirm(c?'Save this schedule and settings? Photos are public only within the scheduled party hours.':'Create the new contest? Previous years and photos are kept privately.'))return false;
     await api(c?`/api/host/contests/${c.id}`:'/api/host/contests',c?'PUT':'POST',{title,settings,expectedCurrentId:data.contest?.id??null,requestId:startRequestId()});newContest=false;await refresh();fillHost();await loadArchives();return true;
   }
   async function loadArchives(){if(!data?.host)return;const list=await api('/api/host/contests'),select=$('archive-select'),selected=select.value;select.replaceChildren();for(const c of list){const date=c.settings.start?new Date(c.settings.start).toLocaleDateString(undefined,{timeZone:c.settings.timezone}):'No date';const o=node('option','',`${c.title} · ${date}${c.archived?' · archived':' · current'}`);o.value=c.id;select.append(o);}if(list.some(c=>c.id===selected))select.value=selected;if(list.length)await loadArchive();}
@@ -250,7 +250,7 @@
     finally{$('undo-next-party').disabled=!data?.nextPartyUndo?.enabled;}
   }));
   window.privateWinnerPreview=action(async()=>{await loadArchives();$('archive-panel').scrollIntoView({behavior:'smooth'});});window.publishWinnerModal=window.privateWinnerPreview;
-  window.openWizardModal=()=>{if(!data.host)return;wizardCategories=[...(data.contest?.settings.categories||defaults)];wizardMode=data.contest?.settings.submissionMode||'guest';for(const [key,id] of [['start','wizard-party-datetime'],['entriesClose','wizard-entries-close-datetime'],['end','wizard-event-close-datetime']])$(id).value=data.contest?localDate(data.contest.settings[key],'America/Chicago'):'';window.goToWizardStep(1);open('host-wizard-modal');};
+  window.openWizardModal=()=>{if(!data.host)return;$('wizard-contest-title').value=data.contest?.title||$('host-contest-title').value||'Geech’s Halloween Party';$('wizard-save-status').textContent='';wizardCategories=[...(data.contest?.settings.categories||defaults)];wizardMode=data.contest?.settings.submissionMode||'guest';for(const [key,id] of [['start','wizard-party-datetime'],['entriesClose','wizard-entries-close-datetime'],['end','wizard-event-close-datetime']])$(id).value=data.contest?localDate(data.contest.settings[key],'America/Chicago'):'';window.goToWizardStep(1);open('host-wizard-modal');};
   function renderWizardSubmissionMode(){
     const names={guest:'Guest Self-Upload',host_only:'Host Intake Only',hybrid:'Hybrid (Both)'};
     for(const mode of Object.keys(names)){
@@ -265,7 +265,20 @@
   window.setWizardSubmissionMode=mode=>{if(!['guest','host_only','hybrid'].includes(mode))return;wizardMode=mode;renderWizardSubmissionMode();};
   function renderWizardCategories(){const list=$('wizard-categories-list');list.replaceChildren();for(const cat of wizardCategories){const row=node('span','inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-950/60 border border-purple-500/40 text-xs text-purple-200',cat);row.append(button('×',()=>window.removeWizardCategory(cat),'text-red-400'));list.append(row);}}
   window.addWizardCategory=()=>{const c=$('wizard-category-input').value.trim();if(c&&!wizardCategories.includes(c))wizardCategories.push(c);$('wizard-category-input').value='';renderWizardCategories();};window.removeWizardCategory=cat=>{if(wizardCategories.length>1)wizardCategories=wizardCategories.filter(c=>c!==cat);renderWizardCategories();};
-  window.finishHostWizard=action(async()=>{for(const [key,id] of [['start','wizard-party-datetime'],['entriesClose','wizard-entries-close-datetime'],['end','wizard-event-close-datetime']])$( {start:'host-party-datetime',entriesClose:'host-entries-close-datetime',end:'host-event-close-datetime'}[key]).value=$(id).value;if(!$('host-contest-title').value){const title=prompt('What is this contest called? For example, Halloween 2026.');if(!title)return;$('host-contest-title').value=title;}if(await saveSettings({categories:wizardCategories,submissionMode:wizardMode,override:'auto'})){close('host-wizard-modal');switchView('host');}});
+  window.finishHostWizard=async()=>{
+    const launch=$('wizard-launch'),message=$('wizard-save-status');if(launch.disabled)return;
+    try{
+      const title=$('wizard-contest-title').value.trim();if(!title)throw new Error('Enter a party name in step 1.');
+      const dates=['wizard-party-datetime','wizard-entries-close-datetime','wizard-event-close-datetime'].map(id=>$(id).value);
+      if(dates.some(value=>!value))throw new Error('Set all three party times in step 1.');
+      if(!(dates[0]<dates[1]&&dates[1]<dates[2]))throw new Error('Party start must be before entries close, and entries close before voting ends. Check step 1.');
+      launch.disabled=true;message.textContent='Saving your party…';
+      $('host-contest-title').value=title;
+      ['host-party-datetime','host-entries-close-datetime','host-event-close-datetime'].forEach((id,i)=>$(id).value=dates[i]);
+      if(await saveSettings({categories:wizardCategories,submissionMode:wizardMode,override:'auto'},false)){message.textContent='Party saved!';close('host-wizard-modal');switchView('host');status('Party saved. Your schedule is active.');}
+    }catch(e){message.textContent=e.message;}
+    finally{launch.disabled=false;}
+  };
   window.handleHostPwFileSelect=e=>{$('host-pw-file-text').textContent=e.target.files[0]?.name||'Upload Photo';};
   function resetHallEditor(){hallEditId=null;for(const id of ['host-pw-name','host-pw-category','host-pw-year','host-pw-file'])$(id).value='';$('hall-form-heading').textContent='Add Historical Winner';$('hall-save-winner').textContent='Save Historical Winner Privately';close('hall-cancel-edit');}
   async function loadHallOfFame(){

@@ -465,7 +465,7 @@
       </div>
 
       <!-- WIZARD STEP 1 -->
-      <div id="wizard-step-1-content" class="space-y-4">
+      <div id="wizard-step-1-content" class="space-y-4"><label class="block text-xs">Party name<input id="wizard-contest-title" type="text" maxlength="100" class="w-full bg-black/60 border border-gray-700 rounded-xl p-3" placeholder="e.g. Geech’s Halloween Party"></label>
         <div class="space-y-1">
           <span class="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Question 1 of 3</span>
           <h4 class="text-sm font-bold text-white">Event Timeline & Milestones</h4>
@@ -539,7 +539,7 @@
       </div>
 
       <!-- WIZARD STEP 3 -->
-      <div id="wizard-step-3-content" class="hidden space-y-4">
+      <p id="wizard-save-status" role="status" aria-live="polite" class="text-sm text-orange-300"></p><div id="wizard-step-3-content" class="hidden space-y-4">
         <div class="space-y-1">
           <span class="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Question 3 of 3</span>
           <h4 class="text-sm font-bold text-white">Contest Categories</h4>
@@ -562,7 +562,7 @@
           <button data-onclick="goToWizardStep(2)" class="py-2.5 rounded-xl bg-gray-800 text-xs text-gray-300 font-bold text-center">
             Back
           </button>
-          <button data-onclick="finishHostWizard()" class="py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs shadow-lg transition text-center">
+          <button id="wizard-launch" type="button" data-onclick="finishHostWizard()" class="py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs shadow-lg transition text-center">
             🚀 Launch Party!
           </button>
         </div>
