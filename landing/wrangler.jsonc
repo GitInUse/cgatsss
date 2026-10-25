@@ -4,7 +4,12 @@
   "assets": {
     "directory": "./public",
     "html_handling": "drop-trailing-slash",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/no-*",
+      "/no-media/*"
+    ]
   },
   "workers_dev": false,
   "preview_urls": false,
@@ -12,6 +17,13 @@
     {
       "pattern": "idontthinkiwill.com/*",
       "zone_name": "idontthinkiwill.com"
+    }
+  ],
+  "main": "worker.js",
+  "kv_namespaces": [
+    {
+      "binding": "NO_MEMES",
+      "id": "d687bafba1084db3be4278df75a36c11"
     }
   ]
 }

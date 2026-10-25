@@ -1,1 +1,9 @@
-{"name":"idontthinkiwill-home","private":true,"version":"1.0.0","scripts":{"build":"node --check ../scripts/check-release.js"}}
+{
+  "name": "idontthinkiwill-home",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node --test test-worker.mjs"
+  },
+  "type": "module"
+}
