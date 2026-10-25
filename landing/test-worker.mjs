@@ -18,7 +18,8 @@ function fixture(){
  async getWithMetadata(k){return data.get(k)||{value:null};}
  }};
  const fetcher=async(input,options={})=>{
-  const url=String(input);calls.push(url);assert.equal(options.redirect,'error');
+  const url=String(input);calls.push(url);assert.equal(options.redirect,'manual');
+  if(url===issuer+'/.well-known/openid-configuration'&&mode==='redirect')return new Response(null,{status:302,headers:{Location:'https://evil.test'}});
   if(url===issuer+'/.well-known/openid-configuration')return Response.json({issuer,authorization_endpoint:issuer+'/o/oauth2/v2/auth',token_endpoint:'https://oauth2.googleapis.com/token',jwks_uri:'https://www.googleapis.com/oauth2/v3/certs',response_types_supported:['code'],subject_types_supported:['public'],id_token_signing_alg_values_supported:['RS256'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['client_secret_post']});
   if(url==='https://www.googleapis.com/oauth2/v3/certs')return Response.json({keys:[jwk]});
   assert.equal(url,'https://oauth2.googleapis.com/token');
@@ -156,3 +157,5 @@ test('only owner can remove and restore uploaded and starter memes across handle
  assert.equal((await f.handle(req('/api/no-admin/restore','POST',JSON.stringify({id}),session),f.env)).status,200);
  assert.equal((await (await f.handle(req('/api/no-memes'),f.env)).json()).memes.length,2);
 });
+
+test('Workers-compatible identity requests never follow redirects or expose secrets in failures',async()=>{const f=fixture();f.setMode('redirect');const response=await f.handle(req('/api/personal/google/start'),f.env);assert.equal(response.status,503);assert.doesNotMatch(await response.text(),/test-google-client|owner@example/);assert.deepEqual(f.calls,[issuer+'/.well-known/openid-configuration']);});

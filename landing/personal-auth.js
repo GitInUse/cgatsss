@@ -40,9 +40,12 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
   'https://oauth2.googleapis.com/token',
   'https://www.googleapis.com/oauth2/v3/certs'
  ]);
- const fetchGoogle=(url,options)=>{
+ const fetchGoogle=async(url,options)=>{
   if(!approvedEndpoints.has(String(url)))throw Error('Unexpected identity endpoint.');
-  return fetcher(url,{...options,redirect:'error',signal:AbortSignal.timeout(10000)});
+  // Workers supports manual, not the Fetch redirect:error mode. Never follow identity redirects.
+  const response=await fetcher(url,{...options,redirect:'manual',signal:AbortSignal.timeout(10000)});
+  if(response.status>=300&&response.status<400)throw Error('Unexpected identity redirect.');
+  return response;
  };
  async function identity(config){
   const version=await digest(JSON.stringify([config.id,config.secret,config.emails]));
@@ -115,4 +118,3 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
  }
  return {personalSession,personalRoutes};
 }
-
