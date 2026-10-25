@@ -1,0 +1,2 @@
+/party https://geech.idontthinkiwill.com/party/ 302
+/party/* https://geech.idontthinkiwill.com/party/:splat 302
