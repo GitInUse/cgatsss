@@ -82,7 +82,8 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
    if(!await limited(env,'google-start'))return json({error:'Please wait a minute before trying again.'},429);
    const next=safeDestination(url.searchParams.get('next'));
    if(await personalSession(request,env))return redirect(next);
-   const {google,key,version}=await identity(config);
+   let prepared;try{prepared=await identity(config);}catch(error){const code=typeof error.code==='string'&&/^[A-Z_]{3,80}$/.test(error.code)?error.code:error.message==='Unexpected identity endpoint.'?'ENDPOINT_BLOCKED':error.name==='TypeError'?'TYPE_ERROR':'DISCOVERY_FAILED';return json({error:'Google sign-in could not start. Please try again.',reference:code},503);}
+   const {google,key,version}=prepared;
    const verifier=oidc.randomPKCECodeVerifier(),state=oidc.randomState(),nonce=oidc.randomNonce();
    const flow=await new EncryptJWT({verifier,state,nonce,next,version}).setProtectedHeader({alg:'dir',enc:'A256GCM'}).setIssuer(ORIGIN).setAudience('google-login').setIssuedAt().setExpirationTime('10m').encrypt(key);
    const target=oidc.buildAuthorizationUrl(google,{redirect_uri:CALLBACK,scope:'openid email',response_type:'code',code_challenge:await oidc.calculatePKCECodeChallenge(verifier),code_challenge_method:'S256',state,nonce,prompt:'select_account'});
@@ -114,3 +115,4 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
  }
  return {personalSession,personalRoutes};
 }
+
