@@ -5,5 +5,9 @@
   "scripts": {
     "build": "node --test test-worker.mjs"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "jose": "6.2.13",
+    "openid-client": "6.8.8"
+  }
 }

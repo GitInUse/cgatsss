@@ -1,0 +1,5 @@
+# Local test values only. Real configuration belongs in Cloudflare runtime settings.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# JSON array of one or two approved Google-account addresses. Never commit actual values.
+OWNER_EMAILS=

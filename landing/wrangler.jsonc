@@ -6,10 +6,7 @@
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page",
     "binding": "ASSETS",
-    "run_worker_first": [
-      "/api/no-*",
-      "/no-media/*"
-    ]
+    "run_worker_first": true
   },
   "workers_dev": false,
   "preview_urls": false,
@@ -25,5 +22,18 @@
       "binding": "NO_MEMES",
       "id": "d687bafba1084db3be4278df75a36c11"
     }
-  ]
+  ],
+  "ratelimits": [
+    {
+      "name": "LOGIN_LIMITER",
+      "namespace_id": "2026102501",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
+  ],
+  "vars": {
+    "GOOGLE_CLIENT_ID": "267494127627-q3dn4bai8ibqs652754726e8nk1fhie8.apps.googleusercontent.com"
+  }
 }
