@@ -67,3 +67,6 @@ After live deployment: signed-out private URLs must ask for Google sign-in; one 
 Only Phase 2: dashboard has the existing Geech link, meme uploader, future-project space and logout. Party creation, multi-party storage and paid infrastructure await separate approval.
 
 The first generated Google client secret appeared in browser accessibility output during setup. It was never used by the website or committed. The owner must generate a replacement in Google, enter only the replacement in Cloudflare, and disable the older secret before publication. Do not copy either value into setup notes, logs or chat.
+
+### Meme library
+The private uploader lists all starter and uploaded memes. Delete confirms removal from public rotation; Restore reverses it. Files are retained, and existing direct image links still work. Deletion markers persist in the same KV namespace. Propagation can take a minute or more. Removing every meme leaves the public page empty rather than bringing starter memes back.

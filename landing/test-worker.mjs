@@ -137,3 +137,22 @@ test('root has no navigation and each load chooses only one meme without repeati
   await vm.runInNewContext(readFileSync(new URL('./public/meme.js',import.meta.url),'utf8'),context);assert.equal(img.hidden,false);assert.ok(img.src);assert.notEqual(img.src,previous);previous=img.src;
  }
 });
+
+test('only owner can remove and restore uploaded and starter memes across handler restarts',async()=>{
+ const f=fixture(),session=await login(f);
+ assert.equal((await f.handle(req('/api/no-admin/library'),f.env)).status,401);
+ for(const id of ['seed-0','seed-1']){
+  assert.equal((await f.handle(req('/api/no-admin/delete','POST',JSON.stringify({id})),f.env)).status,401);
+  assert.equal((await f.handle(req('/api/no-admin/delete','POST',JSON.stringify({id}),session,{Origin:'https://evil.test'}),f.env)).status,403);
+  assert.equal((await f.handle(req('/api/no-admin/delete','POST',JSON.stringify({id}),session),f.env)).status,200);
+ }
+ assert.equal((await (await createHandler({fetcher:f.fetcher})(req('/api/no-memes'),f.env)).json()).memes.length,0);
+ const library=await (await f.handle(req('/api/no-admin/library','GET',undefined,session),f.env)).json();assert.equal(library.memes.length,2);assert.ok(library.memes.every(m=>m.deleted));
+ assert.equal((await f.handle(req('/api/no-admin/restore','POST',JSON.stringify({id:'seed-0'}),session),f.env)).status,200);
+ assert.equal((await (await f.handle(req('/api/no-memes'),f.env)).json()).memes.length,1);
+ const form=new FormData();form.append('image',new Blob([readFileSync(new URL('./public/assets/no.gif',import.meta.url))],{type:'image/gif'}),'no.gif');
+ const uploaded=await (await f.handle(req('/api/no-admin/upload','POST',form,session),f.env)).json();const id=uploaded.url.split('/').pop();
+ assert.equal((await f.handle(req('/api/no-admin/delete','POST',JSON.stringify({id}),session),f.env)).status,200);assert.ok(f.data.has('image:'+id));
+ assert.equal((await f.handle(req('/api/no-admin/restore','POST',JSON.stringify({id}),session),f.env)).status,200);
+ assert.equal((await (await f.handle(req('/api/no-memes'),f.env)).json()).memes.length,2);
+});
