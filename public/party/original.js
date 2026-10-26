@@ -112,6 +112,7 @@
   function tick(){
     if(!data)return;const s=data.contest?.settings,now=Date.now()+offset;
     const container=$('countdown-banner');container.replaceChildren();
+    if(s?.modules?.countdowns===false){container.classList.add('hidden');return;}
     for(const [key,label] of [['start','⏳ Party Starts In'],['entriesClose','📸 Entries Close In'],['end','🗳️ Voting Closes In']]){
       const target=Date.parse(s?.[key]);if(!Number.isFinite(target)||target<=now)continue;
       let seconds=Math.ceil((target-now)/1000);const days=Math.floor(seconds/86400);seconds%=86400;const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),ss=seconds%60;
@@ -124,6 +125,7 @@
     const c=newContest?null:data.contest,s=c?.settings,zone='America/Chicago';
     $('host-contest-title').value=c?.title||'';$('host-timezone').value=zone;
     $('host-tagline').value=s?.tagline??'Eat. Drink. Claim the Belt.';
+    $('host-module-countdowns').checked=s?.modules?.countdowns!==false;
     for(const [key,id] of [['start','host-party-datetime'],['entriesClose','host-entries-close-datetime'],['end','host-event-close-datetime']])$(id).value=s?.[key]?localDate(s[key],zone):'';
     $('host-event-status-override').value=s?.override||'auto';$('host-submission-mode').value=s?.submissionMode||'guest';$('host-announcement-input').value=s?.announcement||'';
     renderHostCategories();
@@ -132,7 +134,7 @@
   async function saveSettings(overrides={},confirmSave=true){
     if(!data.host)throw new Error('Host login required.');
     const c=newContest?null:data.contest,old=c?.settings||{};
-    const settings={...old,timezone:'America/Chicago',start:$('host-party-datetime').value,entriesClose:$('host-entries-close-datetime').value,end:$('host-event-close-datetime').value,categories:old.categories||wizardCategories,submissionMode:$('host-submission-mode').value,announcement:$('host-announcement-input').value,override:$('host-event-status-override').value,theme:old.theme||'halloween',...overrides};
+    const settings={...old,timezone:'America/Chicago',start:$('host-party-datetime').value,entriesClose:$('host-entries-close-datetime').value,end:$('host-event-close-datetime').value,categories:old.categories||wizardCategories,submissionMode:$('host-submission-mode').value,announcement:$('host-announcement-input').value,override:$('host-event-status-override').value,theme:old.theme||'halloween',modules:{...old.modules,countdowns:$('host-module-countdowns').checked},...overrides};
     settings.tagline=$('host-tagline').value.trim();
     const title=$('host-contest-title').value.trim();if(!title)throw new Error('Enter a contest name in the host panel first.');
     if(confirmSave&&!confirm(c?'Save this schedule and settings? Photos are public only within the scheduled party hours.':'Create the new contest? Previous years and photos are kept privately.'))return false;
@@ -228,7 +230,7 @@
         const start=$('next-party-start').value,entriesClose=$('next-party-entries-close').value,end=$('next-party-end').value;
         if(!start||!entriesClose||!end||!(start<entriesClose&&entriesClose<=end))throw new Error('Enter new dates: party start must be before entry closing, and entry closing must be at or before voting closes.');
         const old=nextPartySource?.settings;
-        nextPartyDraft={title,requestId:startRequestId(),expectedCurrentId:nextPartySource?.id??null,settings:{categories:[...(old?.categories||defaults)],tagline:old?.tagline??'Eat. Drink. Claim the Belt.',timezone:'America/Chicago',submissionMode:old?.submissionMode||'guest',theme:old?.theme||'halloween',announcement:'',override:'auto',start,entriesClose,end}};
+        nextPartyDraft={title,requestId:startRequestId(),expectedCurrentId:nextPartySource?.id??null,settings:{modules:{countdowns:old?.modules?.countdowns!==false},categories:[...(old?.categories||defaults)],tagline:old?.tagline??'Eat. Drink. Claim the Belt.',timezone:'America/Chicago',submissionMode:old?.submissionMode||'guest',theme:old?.theme||'halloween',announcement:'',override:'auto',start,entriesClose,end}};
         $('next-party-review').textContent=nextPartySource?`Archive ${nextPartySource.title} and create ${title}? Photos, votes, and messages will be saved in your host-only archive. Published winners will stay public. New party: ${start.replace('T',' ')} to ${end.replace('T',' ')}; entries close ${entriesClose.replace('T',' ')} (${nextPartyDraft.settings.timezone}).`:`Create ${title}? New party: ${start.replace('T',' ')} to ${end.replace('T',' ')} (${nextPartyDraft.settings.timezone}).`;
         close('next-party-fields');open('next-party-review');open('next-party-back');submit.textContent=nextPartySource?'Archive & Create Party':'Create Party';$('next-party-status').textContent='';return;
       }
@@ -249,7 +251,7 @@
     finally{$('undo-next-party').disabled=!data?.nextPartyUndo?.enabled;}
   }));
   window.privateWinnerPreview=action(async()=>{await loadArchives();$('archive-panel').scrollIntoView({behavior:'smooth'});});window.publishWinnerModal=window.privateWinnerPreview;
-  window.openWizardModal=()=>{if(!data.host)return;$('wizard-contest-title').value=data.contest?.title||$('host-contest-title').value||'Geech’s Halloween Party';$('wizard-save-status').textContent='';wizardCategories=[...(data.contest?.settings.categories||defaults)];wizardMode=data.contest?.settings.submissionMode||'guest';for(const [key,id] of [['start','wizard-party-datetime'],['entriesClose','wizard-entries-close-datetime'],['end','wizard-event-close-datetime']])$(id).value=data.contest?localDate(data.contest.settings[key],'America/Chicago'):'';window.goToWizardStep(1);open('host-wizard-modal');};
+  window.openWizardModal=()=>{if(!data.host)return;$('wizard-module-countdowns').checked=data.contest?.settings.modules?.countdowns!==false;$('wizard-contest-title').value=data.contest?.title||$('host-contest-title').value||'Geech’s Halloween Party';$('wizard-save-status').textContent='';wizardCategories=[...(data.contest?.settings.categories||defaults)];wizardMode=data.contest?.settings.submissionMode||'guest';for(const [key,id] of [['start','wizard-party-datetime'],['entriesClose','wizard-entries-close-datetime'],['end','wizard-event-close-datetime']])$(id).value=data.contest?localDate(data.contest.settings[key],'America/Chicago'):'';window.goToWizardStep(1);open('host-wizard-modal');};
   function renderWizardSubmissionMode(){
     const names={guest:'Guest Self-Upload',host_only:'Host Intake Only',hybrid:'Hybrid (Both)'};
     for(const mode of Object.keys(names)){
@@ -274,7 +276,7 @@
       launch.disabled=true;message.textContent='Saving your party…';
       $('host-contest-title').value=title;
       ['host-party-datetime','host-entries-close-datetime','host-event-close-datetime'].forEach((id,i)=>$(id).value=dates[i]);
-      if(await saveSettings({categories:wizardCategories,submissionMode:wizardMode,override:'auto'},false)){message.textContent='Party saved!';close('host-wizard-modal');switchView('host');status('Party saved. Your schedule is active.');}
+      if(await saveSettings({categories:wizardCategories,submissionMode:wizardMode,override:'auto',modules:{...data.contest?.settings.modules,countdowns:$('wizard-module-countdowns').checked}},false)){message.textContent='Party saved!';close('host-wizard-modal');switchView('host');status('Party saved. Your schedule is active.');}
     }catch(e){message.textContent=e.message;}
     finally{launch.disabled=false;}
   };

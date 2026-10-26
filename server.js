@@ -22,6 +22,13 @@ const text = (v, max = 120, required = false) => {
   if (typeof v !== 'string' || v.trim().length > max || (required && !v.trim())) fail(400, 'Please check the text and its length.');
   return v.trim();
 };
+// Add future implemented modules here; old events retain their original behavior.
+export const EVENT_MODULE_DEFAULTS = Object.freeze({ countdowns: true });
+export function eventModules(input, previous = EVENT_MODULE_DEFAULTS) {
+  if (input === undefined) return { ...EVENT_MODULE_DEFAULTS, ...previous };
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !Object.hasOwn(EVENT_MODULE_DEFAULTS, key)) || Object.values(input).some(value => typeof value !== 'boolean')) fail(400, 'Choose valid event module switches.');
+  return { ...EVENT_MODULE_DEFAULTS, ...previous, ...input };
+}
 export function phase(contest, now = Date.now()) {
   if (!contest || contest.archived) return 'closed';
   const s = contest.settings;
@@ -115,7 +122,9 @@ export function createApp(options = {}) {
   app.locals.db = db; app.locals.dataDir = dataDir;
   const getContest = id => {
     const row = id ? db.prepare('SELECT * FROM contests WHERE id=?').get(id) : db.prepare('SELECT * FROM contests WHERE archived=0').get();
-    return row && { ...row, settings: JSON.parse(row.settings) };
+    if (!row) return row;
+    const settings=JSON.parse(row.settings);
+    return { ...row, settings: { ...settings, modules: eventModules(settings.modules) } };
   };
   const active = () => getContest();
   const isOpen = c => ['live', 'voting_only'].includes(phase(c, now()));
@@ -185,7 +194,7 @@ export function createApp(options = {}) {
     if (host) db.prepare('DELETE FROM sessions WHERE id=?').run(hash(host[1]));
     res.clearCookie('host', { path: '/', httpOnly: true, secure: production, sameSite: 'strict' }); res.json({ ok: true });
   });
-  const validateSettings = input => {
+  const validateSettings = (input, previousModules) => {
     const zone = text(input.timezone || 'America/Chicago', 80, true);
     if (!IANAZone.isValidZone(zone)) fail(400, 'Choose a valid timezone, such as America/Chicago.');
     const dates = ['start', 'entriesClose', 'end'].map(key => {
@@ -201,7 +210,7 @@ export function createApp(options = {}) {
     const cats = input.categories.map(c => text(c, 60, true));
     if (new Set(cats.map(c => c.toLowerCase())).size !== cats.length) fail(400, 'Category names must be unique.');
     if (!['guest', 'host_only', 'hybrid'].includes(input.submissionMode)) fail(400, 'Invalid submission mode.');
-    return { timezone: zone, start: dates[0], entriesClose: dates[1], end: dates[2], categories: cats, submissionMode: input.submissionMode, tagline: text(input.tagline ?? 'Eat. Drink. Claim the Belt.', 120), announcement: text(input.announcement || '', 300), theme: input.theme === 'neutral' ? 'neutral' : 'halloween', override: input.override === 'closed' ? 'closed' : 'auto' };
+    return { modules: eventModules(input.modules, previousModules), timezone: zone, start: dates[0], entriesClose: dates[1], end: dates[2], categories: cats, submissionMode: input.submissionMode, tagline: text(input.tagline ?? 'Eat. Drink. Claim the Belt.', 120), announcement: text(input.announcement || '', 300), theme: input.theme === 'neutral' ? 'neutral' : 'halloween', override: input.override === 'closed' ? 'closed' : 'auto' };
   };
   app.post('/api/host/password',hostOnly,(req,res)=>{
     const value=req.body.password;
@@ -244,7 +253,7 @@ export function createApp(options = {}) {
   });
   app.put('/api/host/contests/:id', hostOnly, (req, res) => {
     const c = getContest(req.params.id); if (!c || c.archived) fail(404, 'Current contest not found.');
-    const settings = validateSettings(req.body.settings), title = text(req.body.title, 100, true);
+    const settings = validateSettings(req.body.settings, c.settings.modules), title = text(req.body.title, 100, true);
     const used = entryRows(c.id).map(e => e.category);
     if (used.some(cat => !settings.categories.includes(cat))) fail(409, 'Keep categories that already contain entries.');
     db.prepare('UPDATE contests SET title=?, settings=? WHERE id=?').run(title, JSON.stringify(settings), c.id); res.json({ ok: true });

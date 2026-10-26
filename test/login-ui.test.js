@@ -111,6 +111,11 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   await intervals[0]();
   const initialClock=clock;
   clock-=2*3600000;await intervals[0]();assert.equal($('countdown-banner').children.length,3);
+  context.switchView('host');assert.equal($('host-module-countdowns').checked,true);
+  $('host-module-countdowns').checked=false;context.confirm=()=>true;await context.saveHostScheduleSettings();await intervals[0]();
+  assert.equal($('countdown-banner').children.length,0);assert.equal($('countdown-banner').classList.contains('hidden'),true);
+  context.openWizardModal();assert.equal($('wizard-module-countdowns').checked,false);$('wizard-module-countdowns').checked=true;await context.finishHostWizard();await intervals[0]();
+  assert.equal($('countdown-banner').children.length,3);assert.equal($('host-module-countdowns').checked,true);context.confirm=()=>false;
   assert.equal($('message-board-feed').closest('.panel-card').classList.contains('hidden'),false);
   assert.equal($('msg-text-input').disabled,true);
   clock=initialClock;await intervals[0]();assert.equal($('countdown-banner').children.length,2);
