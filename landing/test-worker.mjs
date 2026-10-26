@@ -173,7 +173,7 @@ test('standalone photo booth is public, canonical and device-only without changi
 test('party selector uses a separate server-checked code without granting host or owner access',async()=>{
  const f=fixture();delete f.env.GOOGLE_CLIENT_SECRET;
  const start=await f.handle(req('/party/'),f.env),html=await start.text();assert.equal(start.status,200);assert.match(html,/href="\/party\/enter"/);assert.doesNotMatch(html,/Join Geech|1234/);
- for(const method of ['GET','HEAD']){const page=await f.handle(req('/party/enter',method),f.env);assert.equal(page.status,200);assert.equal(page.headers.get('Referrer-Policy'),'same-origin');const text=await page.text();if(method==='HEAD')assert.equal(text,'');else{assert.match(text,/name="code"/);assert.match(text,/maxlength="6"/);assert.doesNotMatch(text,/1234|geech\./);}}
+ for(const method of ['GET','HEAD']){const page=await f.handle(req('/party/enter',method),f.env);assert.equal(page.status,200);assert.equal(page.headers.get('Referrer-Policy'),'same-origin');assert.match(page.headers.get('Content-Security-Policy'),/form-action 'self' https://geech.idontthinkiwill.com/);const text=await page.text();if(method==='HEAD')assert.equal(text,'');else{assert.match(text,/name="code"/);assert.match(text,/maxlength="6"/);assert.doesNotMatch(text,/1234|geech\./);}}
  const submit=(code,extra={})=>f.handle(req('/party/enter','POST',new URLSearchParams({code}),undefined,extra),f.env);
  for(const code of ['1031','Kerry-example','123','1234567','abcd','１２３４',' 1234','9999'])assert.equal((await submit(code)).status,400);
  assert.equal((await submit('1234',{Origin:'https://evil.test'})).status,403);
