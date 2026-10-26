@@ -138,6 +138,7 @@
   function fillHost(){
     const c=newContest?null:data.contest,s=c?.settings,zone='America/Chicago';
     $('host-contest-title').value=c?.title||'';$('host-timezone').value=zone;
+    $('host-booth-takePhoto').checked=s?.booth?.takePhoto!==false;
     $('host-tagline').value=s?.tagline??'Eat. Drink. Claim the Belt.';
     for(const key of ['countdowns','enterContest','voting'])$('host-module-'+key).checked=s?.modules?.[key]!==false;
     for(const [key,id] of [['start','host-party-datetime'],['entriesClose','host-entries-close-datetime'],['end','host-event-close-datetime']])$(id).value=s?.[key]?localDate(s[key],zone):'';
@@ -148,7 +149,7 @@
   async function saveSettings(overrides={},confirmSave=true){
     if(!data.host)throw new Error('Host login required.');
     const c=newContest?null:data.contest,old=c?.settings||{};
-    const settings={...old,timezone:'America/Chicago',start:$('host-party-datetime').value,entriesClose:$('host-entries-close-datetime').value,end:$('host-event-close-datetime').value,categories:old.categories||wizardCategories,submissionMode:$('host-submission-mode').value,announcement:$('host-announcement-input').value,override:$('host-event-status-override').value,theme:old.theme||'halloween',modules:{...old.modules,...Object.fromEntries(['countdowns','enterContest','voting'].map(key=>[key,$('host-module-'+key).checked]))},...overrides};
+    const settings={...old,booth:{takePhoto:$('host-booth-takePhoto').checked},timezone:'America/Chicago',start:$('host-party-datetime').value,entriesClose:$('host-entries-close-datetime').value,end:$('host-event-close-datetime').value,categories:old.categories||wizardCategories,submissionMode:$('host-submission-mode').value,announcement:$('host-announcement-input').value,override:$('host-event-status-override').value,theme:old.theme||'halloween',modules:{...old.modules,...Object.fromEntries(['countdowns','enterContest','voting'].map(key=>[key,$('host-module-'+key).checked]))},...overrides};
     settings.tagline=$('host-tagline').value.trim();
     const title=$('host-contest-title').value.trim();if(!title)throw new Error('Enter a contest name in the host panel first.');
     if(confirmSave&&!confirm(c?'Save this schedule and settings? Photos are public only within the scheduled party hours.':'Create the new contest? Previous years and photos are kept privately.'))return false;
@@ -265,7 +266,7 @@
   $('entry-take-photo').addEventListener('click',()=>{if(!canUpload())return;if(!entryCamera){status('Camera capture is unavailable. Use Upload Photo instead.');return;}window.clearSelectedPhoto();cameraContestId=data.contest.id;$('entry-camera-panel').hidden=false;entryCamera?.start();});
   $('camera-file-input').addEventListener('click',stopEntryCamera);
   globalThis.addEventListener?.('pagehide',()=>window.clearSelectedPhoto());
-  window.handleFormSubmit=action(async e=>{e.preventDefault();if(!photo||photo.size>8*1024*1024)throw new Error('Choose one JPEG, PNG, or WebP photo, up to 8 MB.');const form=new FormData();form.append('name',$('entry-name').value);form.append('category',$('entry-category').value);form.append('caption',$('entry-caption').value);form.append('photo',photo);const saved=await api('/api/entries','POST',form);window.clearSelectedPhoto();$('entry-name').value='';$('entry-caption').value='';await refresh();switchView(saved.status==='pending'?'my-entries':'main');status(saved.status==='pending'?'Photo submitted privately. Waiting for host approval.':'Photo submitted and approved.');});
+  window.handleFormSubmit=action(async e=>{e.preventDefault();if(!photo||photo.size>8*1024*1024)throw new Error('Choose one JPEG, PNG, or WebP photo, up to 8 MB.');const form=new FormData();form.append('contestId',data.contest.id);form.append('name',$('entry-name').value);form.append('category',$('entry-category').value);form.append('caption',$('entry-caption').value);form.append('photo',photo);const saved=await api('/api/entries','POST',form);window.clearSelectedPhoto();$('entry-name').value='';$('entry-caption').value='';await refresh();switchView(saved.status==='pending'?'my-entries':'main');status(saved.status==='pending'?'Photo submitted privately. Waiting for host approval.':'Photo submitted and approved.');});
   window.handlePostMessage=action(async e=>{e.preventDefault();await api('/api/messages','POST',{author:$('msg-author-input').value||'Anonymous Guest',message:$('msg-text-input').value});$('msg-text-input').value='';await refresh();});
   window.openEntryInfoModal=id=>{const e=[...(data.host?archive?.entries||[]:[]),...data.entries,...(data.myEntries||[]),...data.winners].find(e=>e.id===id);if(!e)return;if(!data.host&&(!e.canEdit||data.phase!=='live'||data.contest?.settings.modules?.enterContest===false)){window.openLightbox(e.photoUrl,`${e.name} — ${e.category}`);return;}editId=id;const c=e.contestId===archive?.contest.id?archive.contest:data.contest;fillSelect('modal-entry-category',c?.id===e.contestId?c.settings.categories:[e.category]);$('modal-entry-name').value=e.name;$('modal-entry-caption').value=e.caption;$('modal-entry-category').value=e.category;const locked=!data.host||!!e.votes||data.winners.some(w=>w.id===id);$('modal-entry-category').disabled=locked;$('entry-category-help').textContent=locked?'Category stays fixed after votes are cast or a winner is published.':'The host can correct the category before this entry receives votes.';open('entry-info-modal');};
   window.closeEntryInfoModal=()=>{close('entry-info-modal');editId=null;};
@@ -311,7 +312,7 @@
         const start=$('next-party-start').value,entriesClose=$('next-party-entries-close').value,end=$('next-party-end').value;
         if(!start||!entriesClose||!end||!(start<entriesClose&&entriesClose<=end))throw new Error('Enter new dates: party start must be before entry closing, and entry closing must be at or before voting closes.');
         const old=nextPartySource?.settings;
-        nextPartyDraft={title,requestId:startRequestId(),expectedCurrentId:nextPartySource?.id??null,settings:{modules:Object.fromEntries(['countdowns','enterContest','voting'].map(key=>[key,old?.modules?.[key]!==false])),categories:[...(old?.categories||defaults)],tagline:old?.tagline??'Eat. Drink. Claim the Belt.',timezone:'America/Chicago',submissionMode:old?.submissionMode||'guest',theme:old?.theme||'halloween',announcement:'',override:'auto',start,entriesClose,end}};
+        nextPartyDraft={title,requestId:startRequestId(),expectedCurrentId:nextPartySource?.id??null,settings:{booth:{takePhoto:old?.booth?.takePhoto!==false},modules:Object.fromEntries(['countdowns','enterContest','voting'].map(key=>[key,old?.modules?.[key]!==false])),categories:[...(old?.categories||defaults)],tagline:old?.tagline??'Eat. Drink. Claim the Belt.',timezone:'America/Chicago',submissionMode:old?.submissionMode||'guest',theme:old?.theme||'halloween',announcement:'',override:'auto',start,entriesClose,end}};
         $('next-party-review').textContent=nextPartySource?`Archive ${nextPartySource.title} and create ${title}? Photos, votes, and messages will be saved in your host-only archive. Published winners will stay public. New party: ${start.replace('T',' ')} to ${end.replace('T',' ')}; entries close ${entriesClose.replace('T',' ')} (${nextPartyDraft.settings.timezone}).`:`Create ${title}? New party: ${start.replace('T',' ')} to ${end.replace('T',' ')} (${nextPartyDraft.settings.timezone}).`;
         close('next-party-fields');open('next-party-review');open('next-party-back');submit.textContent=nextPartySource?'Archive & Create Party':'Create Party';$('next-party-status').textContent='';return;
       }
@@ -332,7 +333,7 @@
     finally{$('undo-next-party').disabled=!data?.nextPartyUndo?.enabled;}
   }));
   window.privateWinnerPreview=action(async()=>{await loadArchives();$('archive-panel').scrollIntoView({behavior:'smooth'});});window.publishWinnerModal=window.privateWinnerPreview;
-  window.openWizardModal=()=>{if(!data.host)return;for(const key of ['countdowns','enterContest','voting'])$('wizard-module-'+key).checked=data.contest?.settings.modules?.[key]!==false;$('wizard-contest-title').value=data.contest?.title||$('host-contest-title').value||'Geech’s Halloween Party';$('wizard-save-status').textContent='';wizardCategories=[...(data.contest?.settings.categories||defaults)];wizardMode=data.contest?.settings.submissionMode||'guest';for(const [key,id] of [['start','wizard-party-datetime'],['entriesClose','wizard-entries-close-datetime'],['end','wizard-event-close-datetime']])$(id).value=data.contest?localDate(data.contest.settings[key],'America/Chicago'):'';window.goToWizardStep(1);open('host-wizard-modal');};
+  window.openWizardModal=()=>{if(!data.host)return;$('wizard-booth-takePhoto').checked=data.contest?.settings.booth?.takePhoto!==false;for(const key of ['countdowns','enterContest','voting'])$('wizard-module-'+key).checked=data.contest?.settings.modules?.[key]!==false;$('wizard-contest-title').value=data.contest?.title||$('host-contest-title').value||'Geech’s Halloween Party';$('wizard-save-status').textContent='';wizardCategories=[...(data.contest?.settings.categories||defaults)];wizardMode=data.contest?.settings.submissionMode||'guest';for(const [key,id] of [['start','wizard-party-datetime'],['entriesClose','wizard-entries-close-datetime'],['end','wizard-event-close-datetime']])$(id).value=data.contest?localDate(data.contest.settings[key],'America/Chicago'):'';window.goToWizardStep(1);open('host-wizard-modal');};
   function renderWizardSubmissionMode(){
     const names={guest:'Guest Self-Upload',host_only:'Host Intake Only',hybrid:'Hybrid (Both)'};
     for(const mode of Object.keys(names)){
@@ -357,7 +358,7 @@
       launch.disabled=true;message.textContent='Saving your party…';
       $('host-contest-title').value=title;
       ['host-party-datetime','host-entries-close-datetime','host-event-close-datetime'].forEach((id,i)=>$(id).value=dates[i]);
-      if(await saveSettings({categories:wizardCategories,submissionMode:wizardMode,override:'auto',modules:{...data.contest?.settings.modules,...Object.fromEntries(['countdowns','enterContest','voting'].map(key=>[key,$('wizard-module-'+key).checked]))}},false)){message.textContent='Party saved!';close('host-wizard-modal');switchView('host');status('Party saved. Your schedule is active.');}
+      if(await saveSettings({booth:{takePhoto:$('wizard-booth-takePhoto').checked},categories:wizardCategories,submissionMode:wizardMode,override:'auto',modules:{...data.contest?.settings.modules,...Object.fromEntries(['countdowns','enterContest','voting'].map(key=>[key,$('wizard-module-'+key).checked]))}},false)){message.textContent='Party saved!';close('host-wizard-modal');switchView('host');status('Party saved. Your schedule is active.');}
     }catch(e){message.textContent=e.message;}
     finally{launch.disabled=false;}
   };
@@ -419,5 +420,11 @@
   $('host-auth-modal').querySelector('p').textContent='Enter the host password. This is verified by the server.';
   const loginError=node('p','text-xs text-red-300');loginError.id='host-login-error';loginError.setAttribute('role','alert');$('host-pin-input').after(loginError);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
-  refresh();setInterval(refresh,5000);setInterval(tick,1000);
+  refresh().then(()=>{
+    const requested=new URLSearchParams(globalThis.location?.search||'');
+    if(requested.get('view')==='enter'&&data){
+      if(requested.get('eventId')!==data.contest?.id)status('The party changed. Return to the booth and choose your party again.');
+      else if(canUpload())switchView('enter');else status('Contest submissions are not available now.');
+    }
+  });setInterval(refresh,5000);setInterval(tick,1000);
 })();

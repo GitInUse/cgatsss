@@ -42,6 +42,7 @@ test('shared voting, private archives, publication, backup recovery, and auth bo
     const form=new FormData();form.append('name',name);form.append('category',category);form.append('caption','A costume');form.append('photo',new Blob([photo],{type:'image/jpeg'}),'test.jpg');
     return call(b,'/api/entries','POST',form);
   }
+  const wrongPartyForm=new FormData();wrongPartyForm.append('contestId','a-different-event');assert.equal((await call(guest,'/api/entries','POST',wrongPartyForm)).status,409);
   const one=await entry(guest,'A ghost'),two=await entry(other,'A pumpkin');assert.equal(one.status,201);assert.equal(two.status,201);
   assert.equal((await call(other,'/api/state')).data.entries.length,0,'Guest photos wait for approval');
   for(const e of [one,two])assert.equal((await call(host,`/api/host/entries/${e.data.id}/moderation`,'POST',{action:'approve',revision:e.data.revision})).status,200);

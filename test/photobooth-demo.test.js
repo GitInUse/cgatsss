@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import {createApp} from '../server.js';
 import {photoBoothDemoPage} from '../scripts/photobooth-demo-page.js';
 import {request} from './transport.js';
-const script=readFileSync(new URL('../public/party/camera-controller.js',import.meta.url),'utf8')+'\n'+readFileSync(new URL('../public/party/photobooth-demo.js',import.meta.url),'utf8');
+const script=readFileSync(new URL('../public/party/camera-controller.js',import.meta.url),'utf8')+'\n'+'globalThis.createPhotoBooth();';
 function fixture({error,unsupported=false,deferPermission=false,deferBlob=false}={}){
  const elements=new Map(),events={},timers=new Map(),created=[],revoked=[],streams=[],calls=[];let permissionResolve,blobResolve,draws=0,sequence=0;
  function element(tag='div'){const attrs={},events={};return{tagName:tag.toUpperCase(),hidden:false,disabled:false,value:'',textContent:'',children:[],events,append(child){this.children.push(child);},replaceChildren(){this.children=[];},addEventListener(name,fn){events[name]=fn;},removeAttribute(name){delete attrs[name];},getAttribute:name=>attrs[name]??null,dispatch(name){return events[name]?.({preventDefault(){}});},get src(){return attrs.src;},set src(v){attrs.src=v;},get href(){return attrs.href;},set href(v){attrs.href=v;},get download(){return attrs.download;},set download(v){attrs.download=v;}};}

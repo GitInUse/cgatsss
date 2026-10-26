@@ -59,7 +59,7 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   const script=readFileSync(new URL('../public/party/original.js',import.meta.url),'utf8');
   const document=fixture(html),cookies=new Map(),origin='http://party.test';
   const intervals=[];
-  const context={document,console,FormData,File,URL,AbortSignal,Intl,Date,Promise,setTimeout:()=>0,clearTimeout(){},setInterval:fn=>{intervals.push(fn);return 0;},location:{origin},scrollTo(){},confirm:()=>false,prompt:()=>null};
+  const context={document,console,FormData,File,URL,URLSearchParams,AbortSignal,Intl,Date,Promise,setTimeout:()=>0,clearTimeout(){},setInterval:fn=>{intervals.push(fn);return 0;},location:{origin},scrollTo(){},confirm:()=>false,prompt:()=>null};
   context.window=context;
   const cameraJpeg=await sharp({create:{width:16,height:16,channels:3,background:'#ff8800'}}).jpeg().toBuffer();
   const cameraTracks=[],cameraVideo=document.getElementById('entry-camera-camera-preview');
@@ -150,6 +150,7 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   const initialClock=clock;
   clock-=2*3600000;await intervals[0]();assert.equal($('countdown-banner').children.length,3);
   context.switchView('host');assert.equal($('host-module-countdowns').checked,true);
+  assert.equal($('host-booth-takePhoto').checked,true);$('host-booth-takePhoto').checked=false;context.confirm=()=>true;await context.saveHostScheduleSettings();await intervals[0]();assert.equal(JSON.parse(app.locals.db.prepare('SELECT settings FROM contests WHERE archived=0').get().settings).booth.takePhoto,false);context.openWizardModal();assert.equal($('wizard-booth-takePhoto').checked,false);$('wizard-booth-takePhoto').checked=true;await context.finishHostWizard();await intervals[0]();assert.equal($('host-booth-takePhoto').checked,true);context.confirm=()=>false;
   $('host-module-countdowns').checked=false;context.confirm=()=>true;await context.saveHostScheduleSettings();await intervals[0]();
   assert.equal($('countdown-banner').children.length,0);assert.equal($('countdown-banner').classList.contains('hidden'),true);
   context.openWizardModal();assert.equal($('wizard-module-countdowns').checked,false);
