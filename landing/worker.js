@@ -1,3 +1,4 @@
+import {boothContextRoute} from './booth-context.js';
 import {partyEntryRoute} from './party-directory.js';
 import {partyPage,partyPageHeaders} from './party-page.js';
 import {renderPhotoBoothPage,boothHeaders} from '../scripts/photobooth-demo-page.js';
@@ -11,6 +12,7 @@ async function listMemes(env){if(!env.NO_MEMES)return seeds;if(catalogue?.namesp
 export function createHandler(options={}){const {personalRoutes,personalSession}=createPersonalAuth(options);return async(request,env)=>{const url=new URL(request.url),path=url.pathname;try{
  if(['/photobooth','/photobooth/','/photobooth.html'].includes(path)){if(!['GET','HEAD'].includes(request.method))return new Response(null,{status:405,headers:{...boothHeaders,Allow:'GET, HEAD'}});if(path!=='/photobooth')return new Response(null,{status:308,headers:{...boothHeaders,Location:'/photobooth'}});return new Response(request.method==='HEAD'?null:renderPhotoBoothPage(),{headers:boothHeaders});}
  if(path==='/party'||path==='/party/'){if(!['GET','HEAD'].includes(request.method))return new Response(null,{status:405,headers:{...partyPageHeaders,Allow:'GET, HEAD'}});if(path==='/party')return new Response(null,{status:308,headers:{...partyPageHeaders,Location:'/party/'}});return new Response(request.method==='HEAD'?null:partyPage,{headers:partyPageHeaders});}
+ const boothContext=await boothContextRoute(request,env,options.boothFetcher);if(boothContext)return boothContext;
  const partyEntry=await partyEntryRoute(request,env);if(partyEntry)return partyEntry;
  const personal=await personalRoutes(request,env);if(personal)return personal;
  if(!path.startsWith('/api/no-')&&!path.startsWith('/no-media/'))return env.ASSETS.fetch(request);

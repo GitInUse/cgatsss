@@ -9,7 +9,7 @@ const origin='https://idontthinkiwill.com',issuer='https://accounts.google.com',
 const {privateKey,publicKey}=await generateKeyPair('RS256');
 const jwk=await exportJWK(publicKey);jwk.kid='test-google-key';jwk.alg='RS256';jwk.use='sig';
 const wrongKey=(await generateKeyPair('RS256')).privateKey;
-function fixture(){
+function fixture({boothFetcher}={}){
  const data=new Map(),codes=new Map(),calls=[];let claimsOverride={},mode='',limited=false,clock=Date.now();
  const env={GOOGLE_CLIENT_ID:clientId,GOOGLE_CLIENT_SECRET:secret,OWNER_EMAILS:JSON.stringify([owner,'backup@example.test']),LOGIN_LIMITER:{async limit(){return {success:!limited};}},ASSETS:{fetch:r=>new Response('static '+new URL(r.url).pathname)},NO_MEMES:{
  async list({prefix}){return {keys:[...data.keys()].filter(k=>k.startsWith(prefix)).map(name=>({name})),list_complete:true};},
@@ -32,7 +32,7 @@ function fixture(){
   const jwt=await new SignJWT(payload).setProtectedHeader({alg:'RS256',kid:jwk.kid}).sign(mode==='bad-signature'?wrongKey:privateKey);
   return Response.json({access_token:'test-access-token',token_type:'Bearer',expires_in:3600,...(mode==='missing-id-token'?{}:{id_token:jwt})});
  };
- const handle=createHandler({fetcher,now:()=>clock});
+ const handle=createHandler({fetcher,boothFetcher,now:()=>clock});
  return {env,data,codes,calls,fetcher,handle,setClaims:value=>{claimsOverride=value;},setMode:value=>{mode=value;},limit:()=>{limited=true;},advance:ms=>{clock+=ms;}};
 }
 function req(path,method='GET',body,cookie='',extra={}){
@@ -163,7 +163,7 @@ test('Workers-compatible identity requests never follow redirects or expose secr
 
 test('standalone photo booth is public, canonical and device-only without changing private login or root memes',async()=>{
  const f=fixture();delete f.env.GOOGLE_CLIENT_SECRET;
- for(const method of ['GET','HEAD']){const response=await f.handle(req('/photobooth',method),f.env);assert.equal(response.status,200);assert.match(response.headers.get('Content-Security-Policy'),/connect-src 'none'/);assert.match(response.headers.get('Permissions-Policy'),/camera=\(self\).*microphone=\(\)/);const html=await response.text();if(method==='HEAD')assert.equal(html,'');else{assert.match(html,/\/photobooth\/controller.js/);assert.doesNotMatch(html,/geech\.|href="\/home|href="\/party/);assert.match(html,/No upload/);}}
+ for(const method of ['GET','HEAD']){const response=await f.handle(req('/photobooth',method),f.env);assert.equal(response.status,200);assert.match(response.headers.get('Content-Security-Policy'),/connect-src 'self'/);assert.match(response.headers.get('Permissions-Policy'),/camera=\(self\).*microphone=\(\)/);const html=await response.text();if(method==='HEAD')assert.equal(html,'');else{assert.match(html,/\/photobooth\/controller.js/);assert.doesNotMatch(html,/geech\.|href="\/home|href="\/party/);assert.match(html,/No upload/);}}
  for(const path of ['/photobooth/','/photobooth.html']){const response=await f.handle(req(path),f.env);assert.equal(response.status,308);assert.equal(response.headers.get('Location'),'/photobooth');}
  assert.equal((await f.handle(req('/photobooth','POST','{}'),f.env)).status,405);
  assert.equal((await f.handle(req('/home'),f.env)).status,503);
@@ -177,7 +177,7 @@ test('party selector uses a separate server-checked code without granting host o
  const submit=(code,extra={})=>f.handle(req('/party/enter','POST',new URLSearchParams({code}),undefined,extra),f.env);
  for(const code of ['1031','Kerry-example','123','1234567','abcd','１２３４',' 1234','9999'])assert.equal((await submit(code)).status,400);
  assert.equal((await submit('1234',{Origin:'https://evil.test'})).status,403);
- const response=await submit('1234');assert.equal(response.status,303);assert.equal(response.headers.get('Location'),'https://geech.idontthinkiwill.com/party/');assert.deepEqual(response.headers.getSetCookie(),[]);assert.doesNotMatch(response.headers.get('Location'),/1234/);
+ const response=await submit('1234');assert.equal(response.status,303);assert.equal(response.headers.get('Location'),'https://geech.idontthinkiwill.com/party/');assert.deepEqual(response.headers.getSetCookie(),['__Host-party-selection=1234; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=43200']);assert.doesNotMatch(response.headers.get('Location'),/1234/);
  partyDirectory.set('01234','https://geech.idontthinkiwill.com/party/');partyDirectory.set('012345','https://geech.idontthinkiwill.com/party/');
  try{assert.equal((await submit('01234')).status,303);assert.equal((await submit('012345')).status,303);}finally{partyDirectory.delete('01234');partyDirectory.delete('012345');}
  const duplicate=await f.handle(req('/party/enter','POST',new URLSearchParams([['code','1234'],['code','9999']])),f.env);assert.equal(duplicate.status,400);
@@ -190,4 +190,33 @@ test('party code generation avoids collisions, preserves leading zeroes and can 
  assert.equal(generatePartyCode(new Set(['1234']),fixed(1234)),'01234');
  assert.equal(generatePartyCode(new Set(['1234','01234']),fixed(1234)),'001234');
  assert.throws(()=>generatePartyCode(new Set(['1234','01234','001234']),fixed(1234)),/No available party code/);
+});
+
+
+test('booth context validates party selection, exposes only public configuration and forwards no credentials',async()=>{
+ const config={eventId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',title:'Halloween Party',features:{takePhoto:true,enterContest:true},contestAvailable:true,contestMessage:'',host:true,entries:[{email:'private@example.test'}]};
+ const upstreamCalls=[];
+ const f=fixture({boothFetcher:async(url,options)=>{upstreamCalls.push({url,options});return Response.json(config);}});
+ const endpoint='/api/photobooth/context';
+ assert.equal((await f.handle(req(endpoint),f.env)).status,409);
+ assert.equal((await f.handle(req(endpoint,'POST',JSON.stringify({code:'1031'}),'',{'Content-Type':'application/json'}),f.env)).status,400);
+ const select=await f.handle(req(endpoint,'POST',JSON.stringify({code:'1234'}),'host=secret; __Host-personal=private',{'Content-Type':'application/json'}),f.env);
+ assert.equal(select.status,200);assert.match(select.headers.get('Set-Cookie'),/^__Host-party-selection=1234;/);
+ const context=await select.json();assert.equal(context.code,'1234');assert.equal(context.eventId,config.eventId);assert.deepEqual(context.features,config.features);assert.match(context.contestUrl,/eventId=aaaaaaaa/);
+ assert.doesNotMatch(JSON.stringify(context),/private@example|entries|host|secret/);
+ assert.equal(upstreamCalls[0].url,'https://geech.idontthinkiwill.com/api/photobooth/config');assert.equal(upstreamCalls[0].options.redirect,'manual');assert.deepEqual(upstreamCalls[0].options.headers,{Accept:'application/json'});
+ const cookie=select.headers.getSetCookie()[0].split(';')[0];assert.equal((await f.handle(req(endpoint,'GET',undefined,cookie),f.env)).status,200);
+ for(const takePhoto of [false,true])for(const enterContest of [false,true]){config.features={takePhoto,enterContest};const response=await f.handle(req(endpoint,'GET',undefined,cookie),f.env),value=await response.json();assert.deepEqual(value.features,config.features);assert.equal(value.contestAvailable,enterContest);}
+ assert.equal((await f.handle(req(endpoint,'DELETE',undefined,cookie,{Origin:'https://evil.test'}),f.env)).status,403);
+ const clear=await f.handle(req(endpoint,'DELETE',undefined,cookie,{Origin:origin}),f.env);assert.equal(clear.status,200);assert.match(clear.headers.get('Set-Cookie'),/Max-Age=0/);assert.doesNotMatch(clear.headers.get('Set-Cookie'),/host=/);
+ const badCookie='__Host-party-selection=1234; __Host-party-selection=9999';assert.equal((await f.handle(req(endpoint,'GET',undefined,badCookie),f.env)).status,409);
+ f.limit();assert.equal((await f.handle(req(endpoint,'POST',JSON.stringify({code:'1234'}),'',{'Content-Type':'application/json'}),f.env)).status,429);
+});
+
+test('booth selection rejects arbitrary upstream URLs and fails safely on unavailable or malformed party servers',async()=>{
+ for(const response of [()=>new Response('warming up',{status:503}),()=>new Response(null,{status:302,headers:{Location:'https://evil.test'}}),()=>Response.json({eventId:'bad',title:'Bad',features:{}})]){
+  const f=fixture({boothFetcher:async()=>response()});const r=await f.handle(req('/api/photobooth/context','POST',JSON.stringify({code:'1234'}),'',{'Content-Type':'application/json'}),f.env);assert.equal(r.status,503);assert.equal(r.headers.get('Set-Cookie'),null);
+ }
+ const f=fixture({boothFetcher:async()=>{throw Error('Should never fetch');}});
+ assert.equal((await f.handle(req('/api/photobooth/context','POST',JSON.stringify({code:'1234',url:'https://evil.test'}),'',{'Content-Type':'application/json'}),f.env)).status,400);
 });

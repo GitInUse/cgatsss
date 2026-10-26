@@ -12,6 +12,13 @@ export function generatePartyCode(usedCodes=partyDirectory.keys(),random=crypto)
  }
  throw new Error('No available party code. Try again later.');
 }
+// A remembered selection is a locator only: always resolve it on the server.
+export const selectionCookie=(code,maxAge=43200)=>`__Host-party-selection=${code}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+export function selectedParty(request){
+ const matches=(request.headers.get('Cookie')||'').split(';').map(s=>s.trim()).filter(s=>s.startsWith('__Host-party-selection='));
+ const value=matches.length===1?matches[0].slice('__Host-party-selection='.length):'';
+ return PARTY_CODE_PATTERN.test(value)?value:'';
+}
 export async function partyEntryRoute(request,env){
  const url=new URL(request.url);if(url.pathname!=='/party/enter'&&url.pathname!=='/party/enter/')return null;
  const {partyCodePage,partyPageHeaders}=await import('./party-page.js');
@@ -28,5 +35,5 @@ export async function partyEntryRoute(request,env){
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
  const params=new URLSearchParams(new TextDecoder().decode(bytes)),code=params.get('code')||'';
  if(params.getAll('code').length!==1||!PARTY_CODE_PATTERN.test(code)||!partyDirectory.has(code))return page('That party code was not found. Check the code and try again.',400);
- return new Response(null,{status:303,headers:{...partyPageHeaders,Location:partyDirectory.get(code)}});
+ return new Response(null,{status:303,headers:{...partyPageHeaders,Location:partyDirectory.get(code),'Set-Cookie':selectionCookie(code)}});
 }
