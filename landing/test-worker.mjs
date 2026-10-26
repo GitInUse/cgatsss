@@ -1,3 +1,4 @@
+import {partyDirectory,generatePartyCode,PARTY_CODE_PATTERN} from './party-directory.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
@@ -166,4 +167,27 @@ test('standalone photo booth is public, canonical and device-only without changi
  for(const path of ['/photobooth/','/photobooth.html']){const response=await f.handle(req(path),f.env);assert.equal(response.status,308);assert.equal(response.headers.get('Location'),'/photobooth');}
  assert.equal((await f.handle(req('/photobooth','POST','{}'),f.env)).status,405);
  assert.equal((await f.handle(req('/home'),f.env)).status,503);
+});
+
+
+test('party selector uses a separate server-checked code without granting host or owner access',async()=>{
+ const f=fixture();delete f.env.GOOGLE_CLIENT_SECRET;
+ const start=await f.handle(req('/party/'),f.env),html=await start.text();assert.equal(start.status,200);assert.match(html,/href="\/party\/enter"/);assert.doesNotMatch(html,/Join Geech|1234/);
+ for(const method of ['GET','HEAD']){const page=await f.handle(req('/party/enter',method),f.env);assert.equal(page.status,200);const text=await page.text();if(method==='HEAD')assert.equal(text,'');else{assert.match(text,/name="code"/);assert.match(text,/maxlength="6"/);assert.doesNotMatch(text,/1234|geech\./);}}
+ const submit=(code,extra={})=>f.handle(req('/party/enter','POST',new URLSearchParams({code}),undefined,extra),f.env);
+ for(const code of ['1031','Kerry-example','123','1234567','abcd','１２３４',' 1234','9999'])assert.equal((await submit(code)).status,400);
+ assert.equal((await submit('1234',{Origin:'https://evil.test'})).status,403);
+ const response=await submit('1234');assert.equal(response.status,303);assert.equal(response.headers.get('Location'),'https://geech.idontthinkiwill.com/party/');assert.deepEqual(response.headers.getSetCookie(),[]);assert.doesNotMatch(response.headers.get('Location'),/1234/);
+ partyDirectory.set('01234','https://geech.idontthinkiwill.com/party/');partyDirectory.set('012345','https://geech.idontthinkiwill.com/party/');
+ try{assert.equal((await submit('01234')).status,303);assert.equal((await submit('012345')).status,303);}finally{partyDirectory.delete('01234');partyDirectory.delete('012345');}
+ const duplicate=await f.handle(req('/party/enter','POST',new URLSearchParams([['code','1234'],['code','9999']])),f.env);assert.equal(duplicate.status,400);
+ f.limit();assert.equal((await submit('1234')).status,429);
+});
+
+test('party code generation avoids collisions, preserves leading zeroes and can expand to six digits',()=>{
+ const fixed=value=>({getRandomValues:array=>{array[0]=value;return array;}});
+ assert.equal(generatePartyCode(new Set(),fixed(7)),'0007');assert.ok(PARTY_CODE_PATTERN.test('0007'));
+ assert.equal(generatePartyCode(new Set(['1234']),fixed(1234)),'01234');
+ assert.equal(generatePartyCode(new Set(['1234','01234']),fixed(1234)),'001234');
+ assert.throws(()=>generatePartyCode(new Set(['1234','01234','001234']),fixed(1234)),/No available party code/);
 });
