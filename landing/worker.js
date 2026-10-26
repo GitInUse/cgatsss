@@ -1,3 +1,4 @@
+import {renderPhotoBoothPage,boothHeaders} from '../scripts/photobooth-demo-page.js';
 import {createPersonalAuth} from './personal-auth.js';
 const MAX_FILE=8*1024*1024;
 const seeds=[{url:'/assets/no.gif',alt:'No.'},{url:'/assets/bugs-no.png',alt:'No.'}];let catalogue;
@@ -6,6 +7,7 @@ async function readLimited(request,limit){if(Number(request.headers.get('Content
 export function imageType(bytes){if(bytes.length<12)return null;const ascii=(a,b)=>String.fromCharCode(...bytes.slice(a,b));if(['GIF87a','GIF89a'].includes(ascii(0,6)))return 'image/gif';if([137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v))return 'image/png';if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';if(ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP')return 'image/webp';return null;}
 async function listMemes(env){if(!env.NO_MEMES)return seeds;if(catalogue?.namespace===env.NO_MEMES&&catalogue.until>Date.now())return catalogue.items;const items=seeds.map((m,i)=>({...m,id:'seed-'+i}));let cursor;do{const page=await env.NO_MEMES.list({prefix:'image:',limit:1000,...(cursor?{cursor}:{})});for(const key of page.keys)if(/^image:[a-f0-9-]{36}$/.test(key.name))items.push({id:key.name.slice(6),url:'/no-media/'+key.name.slice(6),alt:'No.'});cursor=page.list_complete?null:page.cursor;}while(cursor);const checked=await Promise.all(items.map(async m=>({...m,deleted:!!await env.NO_MEMES.get('deleted:'+m.id)})));catalogue={namespace:env.NO_MEMES,until:Date.now()+60000,items:checked};return checked;}
 export function createHandler(options={}){const {personalRoutes,personalSession}=createPersonalAuth(options);return async(request,env)=>{const url=new URL(request.url),path=url.pathname;try{
+ if(['/photobooth','/photobooth/','/photobooth.html'].includes(path)){if(!['GET','HEAD'].includes(request.method))return new Response(null,{status:405,headers:{...boothHeaders,Allow:'GET, HEAD'}});if(path!=='/photobooth')return new Response(null,{status:308,headers:{...boothHeaders,Location:'/photobooth'}});return new Response(request.method==='HEAD'?null:renderPhotoBoothPage(),{headers:boothHeaders});}
  const personal=await personalRoutes(request,env);if(personal)return personal;
  if(!path.startsWith('/api/no-')&&!path.startsWith('/no-media/'))return env.ASSETS.fetch(request);
  if(request.method==='GET'&&path==='/api/no-memes')return json({memes:(await listMemes(env)).filter(m=>!m.deleted)});

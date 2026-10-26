@@ -159,3 +159,11 @@ test('only owner can remove and restore uploaded and starter memes across handle
 });
 
 test('Workers-compatible identity requests never follow redirects or expose secrets in failures',async()=>{const f=fixture();f.setMode('redirect');const response=await f.handle(req('/api/personal/google/start'),f.env);assert.equal(response.status,503);assert.doesNotMatch(await response.text(),/test-google-client|owner@example/);assert.deepEqual(f.calls,[issuer+'/.well-known/openid-configuration']);});
+
+test('standalone photo booth is public, canonical and device-only without changing private login or root memes',async()=>{
+ const f=fixture();delete f.env.GOOGLE_CLIENT_SECRET;
+ for(const method of ['GET','HEAD']){const response=await f.handle(req('/photobooth',method),f.env);assert.equal(response.status,200);assert.match(response.headers.get('Content-Security-Policy'),/connect-src 'none'/);assert.match(response.headers.get('Permissions-Policy'),/camera=\(self\).*microphone=\(\)/);const html=await response.text();if(method==='HEAD')assert.equal(html,'');else{assert.match(html,/\/photobooth\/controller.js/);assert.doesNotMatch(html,/geech\.|href="\/home|href="\/party/);assert.match(html,/No upload/);}}
+ for(const path of ['/photobooth/','/photobooth.html']){const response=await f.handle(req(path),f.env);assert.equal(response.status,308);assert.equal(response.headers.get('Location'),'/photobooth');}
+ assert.equal((await f.handle(req('/photobooth','POST','{}'),f.env)).status,405);
+ assert.equal((await f.handle(req('/home'),f.env)).status,503);
+});

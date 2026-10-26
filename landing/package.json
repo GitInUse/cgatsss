@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "node --test test-worker.mjs"
+    "build": "node ../scripts/sync-photobooth.js --check && node --test test-worker.mjs"
   },
   "type": "module",
   "dependencies": {
