@@ -45,3 +45,9 @@ body > header,body > #announcement-ticker,body > #sync-status{flex-shrink:0;}
 #app-container{min-height:100%;padding-bottom:1.25rem;}
 #party-navigation{position:relative;inset:auto;flex:0 0 auto;padding-bottom:calc(.5rem + env(safe-area-inset-bottom));}
 #entry-info-modal .panel-card{max-height:90vh;overflow-y:auto;}
+
+.entry-management-card{padding:1rem;border:1px solid #79634188;border-radius:1rem;overflow-wrap:anywhere;min-width:0}
+.entry-management-card img{display:block;width:100%;max-height:18rem;object-fit:contain;border-radius:.75rem;margin:.5rem auto}
+.entry-management-card button,.entry-management-card input{max-width:100%;min-height:44px}
+#submitted-photos-panel{order:0}#submitted-photos-list,#my-entries-list{padding-bottom:1.5rem}
+.entry-status{color:#e9ce86;font-weight:700}.entry-management-card input[type=file]{width:100%;font-size:.75rem}

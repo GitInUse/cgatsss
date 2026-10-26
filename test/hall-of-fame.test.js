@@ -48,7 +48,7 @@ test('historical winners stay private until published, support edits and survive
   const replacement=await sharp({create:{width:42,height:24,channels:3,background:'#ff0000'}}).png().toBuffer();
   assert.equal((await host(`/api/host/hall-of-fame/${id}`,form({name:'Champion Ghost',category:'Best Costume',title:'2023 Champion'},replacement),'PUT')).status,200);
   winner=(await guest('/api/state')).data.winners.find(w=>w.id===id);assert.equal(winner.category,'Best Costume');assert.equal(winner.contestTitle,'2023 Champion');
-  assert.equal((await sharp((await guest(`/api/photos/${id}`)).data).metadata()).width,42);
+  assert.equal((await sharp((await guest(winner.photoUrl)).data).metadata()).width,42);
   assert.ok(readFileSync(path.join(options.dataDir,'photos',oldFile)).length>0); // Earlier database backups still reference the old immutable file.
   assert.equal(app.locals.db.prepare('SELECT COUNT(*) AS n FROM votes WHERE contest_id=?').get(contestId).n,0);
   assert.equal((await host('/api/host/winners',{contestId,category:'Best Costume',entryId:null},'PUT')).status,200);
@@ -60,6 +60,8 @@ test('historical winners stay private until published, support edits and survive
   assert.equal((await guest(`/api/entries/${entryId}`,{name:'New costume',caption:'',category:'Kids'},'PUT')).status,403);
   assert.equal((await host(`/api/entries/${entryId}`,{name:'New costume',caption:'',category:'Unknown'},'PUT')).status,400);
   assert.equal((await host(`/api/entries/${entryId}`,{name:'New costume',caption:'',category:'Kids'},'PUT')).status,200);
+  const pendingRow=app.locals.db.prepare('SELECT revision FROM entries WHERE id=?').get(entryId);
+  assert.equal((await host(`/api/host/entries/${entryId}/moderation`,{action:'approve',revision:pendingRow.revision})).status,200);
   assert.equal((await guest('/api/votes',{entryId})).status,201);
   assert.equal((await host(`/api/entries/${entryId}`,{name:'New costume',caption:'',category:'Funniest'},'PUT')).status,409);
   const unvoted=await host('/api/entries',entryForm);assert.equal(unvoted.status,201);
@@ -69,6 +71,6 @@ test('historical winners stay private until published, support edits and survive
   const exported=await host('/api/host/export');assert.equal(exported.status,200);const zip=path.join(root,'backup.zip');writeFileSync(zip,exported.data);
   const restoredDir=path.join(root,'restored');await restore(zip,restoredDir);restoredApp=createApp({...options,dataDir:restoredDir});
   const restoredGuest=await client(restoredApp);winner=(await restoredGuest('/api/state')).data.winners.find(w=>w.id===id);assert.equal(winner.name,'Champion Ghost');
-  assert.equal((await restoredGuest(`/api/photos/${id}`)).status,200);
+  assert.equal((await restoredGuest(winner.photoUrl)).status,200);
  }finally{app.locals.db.close();restoredApp?.locals.db.close();rmSync(root,{recursive:true,force:true});}
 });

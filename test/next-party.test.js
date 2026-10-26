@@ -27,7 +27,7 @@ test('next party and Undo are atomic, private, durable and protected against sta
   let host=await client(true),guest=await client();
   const initial=await host('/api/host/contests',{title:'Halloween',settings,requestId:'initial'});assert.equal(initial.status,201);const oldId=initial.data.id;
   const db=app.locals.db;
-  for(const id of ['winner','private']){db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,0,?)').run(id,oldId,id,'Best','','sample.jpg','owner','2026-10-31');}
+  for(const id of ['winner','private']){db.prepare('INSERT INTO entries (id,contest_id,name,category,caption,photo,owner,hidden,created) VALUES (?,?,?,?,?,?,?,0,?)').run(id,oldId,id,'Best','','sample.jpg','owner','2026-10-31');}
   writeFileSync(path.join(dir,'photos','sample.jpg'),Buffer.from([255,216,255,217]));
   db.prepare('INSERT INTO votes VALUES (?,?,?,?)').run(oldId,'Best','voter','winner');
   db.prepare('INSERT INTO messages VALUES (?,?,?,?,0,?)').run('old-message',oldId,'Guest','Great party','2026-10-31');
@@ -44,9 +44,9 @@ test('next party and Undo are atomic, private, durable and protected against sta
   assert.equal((await host('/api/host/contests',{...body,requestId:'stale-page-new-request'})).status,409);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM contests').get().n,2);
   assert.equal((await guest('/api/host/contests/'+oldId+'/archive')).status,401);
-  assert.equal((await guest('/api/photos/private')).status,404);
-  assert.equal((await guest('/api/photos/winner')).status,200);
-  assert.equal((await host('/api/photos/private')).status,200);
+  assert.equal((await guest('/api/photos/private/sample.jpg')).status,404);
+  assert.equal((await guest('/api/photos/winner/sample.jpg')).status,200);
+  assert.equal((await host('/api/photos/private/sample.jpg')).status,200);
   assert.equal((await guest('/api/state')).data.nextPartyUndo,undefined);
   assert.equal((await host('/api/state')).data.nextPartyUndo.enabled,true);
   const archive=(await host('/api/host/contests/'+oldId+'/archive')).data;
@@ -62,11 +62,11 @@ test('next party and Undo are atomic, private, durable and protected against sta
   assert.equal(restored.contest.id,oldId);assert.equal(restored.phase,'closed');assert.equal(restored.contest.settings.override,'closed');
   assert.equal(restored.nextPartyUndo,null);assert.equal(app.locals.db.prepare('SELECT archived FROM contests WHERE id=?').get(nextId).archived,1);
   assert.equal((await host('/api/host/contests',body)).status,409);
-  assert.equal((await guest('/api/photos/private')).status,404);assert.equal((await guest('/api/photos/winner')).status,200);
+  assert.equal((await guest('/api/photos/private/sample.jpg')).status,404);assert.equal((await guest('/api/photos/winner/sample.jpg')).status,200);
   // Each activity type independently prevents Undo, including hidden entries/messages.
   for(const type of ['entries','messages','votes']){
    const next=await host('/api/host/contests',{...body,requestId:'activity-'+type});assert.equal(next.status,201);const id=next.data.id;
-   if(type==='entries')app.locals.db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,1,?)').run('new-entry',id,'Costume','Best','','sample.jpg','owner','2027-10-31');
+   if(type==='entries')app.locals.db.prepare('INSERT INTO entries (id,contest_id,name,category,caption,photo,owner,hidden,created) VALUES (?,?,?,?,?,?,?,1,?)').run('new-entry',id,'Costume','Best','','sample.jpg','owner','2027-10-31');
    if(type==='messages')app.locals.db.prepare('INSERT INTO messages VALUES (?,?,?,?,1,?)').run('new-message',id,'Guest','Hello','2027-10-31');
    if(type==='votes')app.locals.db.prepare('INSERT INTO votes VALUES (?,?,?,?)').run(id,'Best','new-voter','winner');
    assert.equal((await host('/api/state')).data.nextPartyUndo.enabled,false);

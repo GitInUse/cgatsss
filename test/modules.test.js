@@ -50,6 +50,7 @@ test('entry and voting switches are independent, enforced for direct requests, a
   const sharp=(await import('sharp')).default,jpeg=await sharp({create:{width:8,height:8,channels:3,background:'#ff8800'}}).jpeg().toBuffer();
   const form=()=>{const f=new FormData();f.append('name','Ghost');f.append('category','Best');f.append('photo',new Blob([jpeg],{type:'image/jpeg'}),'ghost.jpg');return f;};
   const owner=await client(),entry=(await owner('/api/entries',form())).data.id;let votes=0;
+  assert.equal((await host(`/api/host/entries/${entry}/moderation`,{action:'approve',revision:0})).status,200);
   for(const enterContest of [false,true])for(const voting of [false,true]){
    assert.equal((await host('/api/host/contests/'+id,{title:'Switch test',settings:{...settings,modules:{enterContest,voting}}},'PUT')).status,200);
    const guest=await client();assert.equal((await guest('/api/entries',form())).status,enterContest?201:403);

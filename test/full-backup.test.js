@@ -25,7 +25,7 @@ test('full backup preserves database state/photos and restores without touching 
   db.prepare('INSERT INTO contests VALUES (?,?,?,0,?)').run('next','Next party',settings,'2026-10-02');
   db.prepare('INSERT INTO party_transitions VALUES (?,?,0)').run('next','old');db.prepare('INSERT INTO party_start_requests VALUES (?,?)').run('request-1','next');
   const filename='12345678-1234-1234-1234-123456789abc.jpg';writeFileSync(path.join(dir,'photos',filename),Buffer.from('immutable test photo'));
-  db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,0,?)').run('entry','old','Winner','Best','',filename,'owner','2026-10-01');
+  db.prepare('INSERT INTO entries (id,contest_id,name,category,caption,photo,owner,hidden,created) VALUES (?,?,?,?,?,?,?,0,?)').run('entry','old','Winner','Best','',filename,'owner','2026-10-01');
   db.prepare('INSERT INTO votes VALUES (?,?,?,?)').run('old','Best','voter','entry');db.prepare('INSERT INTO messages VALUES (?,?,?,?,0,?)').run('message','old','Guest','Boo','2026-10-01');
   db.prepare('INSERT INTO winners VALUES (?,?,?,?)').run('old','Best','entry','2026-10-01');
   db.prepare('INSERT INTO visitors VALUES (?,?,?)').run('visitor-hash','csrf-value',Date.now());

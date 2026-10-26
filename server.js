@@ -54,6 +54,14 @@ export function openDatabase(dir) {
     CREATE TABLE IF NOT EXISTS party_transitions (next_id TEXT PRIMARY KEY REFERENCES contests(id), previous_id TEXT NOT NULL REFERENCES contests(id), undone INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS party_start_requests (id TEXT PRIMARY KEY, contest_id TEXT NOT NULL REFERENCES contests(id));
     PRAGMA user_version=1;`);
+  // Additive migration: legacy visible/hidden entries retain their existing meaning.
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const columns = db.prepare('PRAGMA table_info(entries)').all().map(c => c.name);
+    if (!columns.includes('approval')) db.exec("ALTER TABLE entries ADD COLUMN approval TEXT NOT NULL DEFAULT 'approved' CHECK(approval IN ('approved','pending','needs_replacement','withdrawn'))");
+    if (!columns.includes('revision')) db.exec('ALTER TABLE entries ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+    db.exec('CREATE TABLE IF NOT EXISTS photo_deletions (photo TEXT PRIMARY KEY); PRAGMA user_version=2; COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   return db;
 }
 export async function databaseBackup(db, dir, time = Date.now()) {
@@ -130,9 +138,23 @@ export function createApp(options = {}) {
   };
   const active = () => getContest();
   const isOpen = c => ['live', 'voting_only'].includes(phase(c, now()));
-  const photoUrl = id => `/api/photos/${id}`;
+  const eligible = e => !!e && e.approval === 'approved' && !e.hidden && !!e.photo && existsSync(path.join(dataDir,'photos',e.photo));
+  const published = id => !!db.prepare('SELECT 1 FROM winners WHERE entry_id=?').get(id);
+  const photoUrl = e => e.photo ? `/api/photos/${e.id}/${e.photo}` : null;
+  const entryStatus = e => ['withdrawn','needs_replacement'].includes(e.approval) ? e.approval : e.hidden ? 'hidden' : e.approval;
+  const canReplace = (e, host) => e.approval === 'needs_replacement' && !published(e.id) && (host || isOpen(getContest(e.contest_id)));
   const entryRows = id => db.prepare(`SELECT e.*, (SELECT COUNT(*) FROM votes v WHERE v.entry_id=e.id) AS votes FROM entries e WHERE contest_id=? ORDER BY created DESC`).all(id);
-  const entryView = (e, host = false, viewer = '') => ({ id: e.id, contestId: e.contest_id, name: e.name, category: e.category, caption: e.caption, photoUrl: photoUrl(e.id), canEdit: host || e.owner === viewer, ...(host ? { votes: e.votes, hidden: !!e.hidden } : {}) });
+  const entryView = (e, host = false, viewer = '') => ({ id: e.id, contestId: e.contest_id, name: e.name, category: e.category, caption: e.caption, photoUrl: photoUrl(e), status: entryStatus(e), eligible: eligible(e), canEdit: host || e.owner === viewer, ...((host || e.owner === viewer) ? { revision:e.revision, canReplace:canReplace(e,host), canWithdraw:e.approval!=='withdrawn'&&!published(e.id), published:published(e.id) } : {}), ...(host ? { votes: e.votes, hidden: !!e.hidden } : {}) });
+  let activeExports=0;
+  function cleanDeletedPhotos() {
+    if(activeExports)return;
+    for (const {photo} of db.prepare('SELECT photo FROM photo_deletions').all()) {
+      if (!/^[a-f0-9-]{36}\.jpg$/.test(photo)) continue;
+      if (db.prepare('SELECT 1 FROM entries WHERE photo=?').get(photo)) continue;
+      try { if(existsSync(path.join(dataDir,'photos',photo)))unlinkSync(path.join(dataDir,'photos',photo)); db.prepare('DELETE FROM photo_deletions WHERE photo=?').run(photo); } catch { /* Retry on the next change or startup. Files are never served without an entry. */ }
+    }
+  }
+  cleanDeletedPhotos();
   const undoInfo = c => {
     if(!c)return null;
     const row=db.prepare('SELECT t.previous_id,c.title FROM party_transitions t JOIN contests c ON c.id=t.previous_id WHERE t.next_id=? AND t.undone=0 AND c.archived=1').get(c.id);
@@ -145,7 +167,8 @@ export function createApp(options = {}) {
     if (production) res.set('Strict-Transport-Security', 'max-age=31536000');
     if(production&&req.path!=='/healthz'&&['GET','HEAD'].includes(req.method)&&req.get('host')!==new URL(origin).host)return res.redirect(308,origin+req.originalUrl);
     const cookies = Object.fromEntries((req.headers.cookie || '').split(';').map(v => v.trim().split('=')));
-    req.hostAuth = /^[a-f0-9]{64}$/.test(cookies.host || '') && !!db.prepare('SELECT id FROM sessions WHERE id=? AND expires>?').get(hash(cookies.host), now());
+    req.hostSessionId = /^[a-f0-9]{64}$/.test(cookies.host || '') ? hash(cookies.host) : null;
+    req.hostAuth = !!req.hostSessionId && !!db.prepare('SELECT id FROM sessions WHERE id=? AND expires>?').get(req.hostSessionId, now());
     let visitor = /^[a-f0-9]{64}$/.test(cookies.visitor || '') && db.prepare('SELECT * FROM visitors WHERE id=?').get(hash(cookies.visitor));
     if (!visitor && (req.path === '/api/state' || (guestDemoEnabled && req.path === '/api/guest-demo/session'))) {
       const v = token(); visitor = { id: hash(v), csrf: token(), created: now() };
@@ -167,16 +190,18 @@ export function createApp(options = {}) {
     res.redirect(302,'https://idontthinkiwill.com/photobooth');
   });
   installGuestDemo({app,db,enabled:guestDemoEnabled,production,now,active,limiter});
+  const stillHost = req => !!req.hostSessionId && !!db.prepare('SELECT 1 FROM sessions WHERE id=? AND expires>?').get(req.hostSessionId,now());
   const hostOnly = (req, res, next) => req.hostAuth ? next() : res.status(401).json({ error: 'Host login required.' });
   app.get('/healthz', (req, res) => { db.prepare('SELECT 1').get(); res.json({ ok: true }); });
   app.get('/api/state', (req, res) => {
     const c = active(), currentPhase = phase(c, now());
     const visible = c && (req.hostAuth || isOpen(c));
-    const winners = db.prepare(`SELECT e.*, c.title, w.published FROM winners w JOIN entries e ON e.id=w.entry_id JOIN contests c ON c.id=w.contest_id ORDER BY w.published DESC`).all().map(e => ({ ...entryView(e), contestTitle: e.title }));
+    const winners = db.prepare(`SELECT e.*, c.title, w.published FROM winners w JOIN entries e ON e.id=w.entry_id JOIN contests c ON c.id=w.contest_id ORDER BY w.published DESC`).all().filter(eligible).map(e => ({ ...entryView(e), contestTitle: e.title }));
     res.json({ csrf: req.visitor.csrf, host: !!req.hostAuth, localPreview, demoMode, guestDemoAvailable:guestDemoEnabled, serverTime: now(), phase: currentPhase,
       contest: c ? { id: c.id, title: c.title, settings: c.settings } : null,
-      entries: visible ? entryRows(c.id).filter(e => req.hostAuth || !e.hidden).map(e => entryView(e, req.hostAuth, req.visitor.id)) : [],
+      entries: visible ? entryRows(c.id).filter(e => req.hostAuth || eligible(e)).map(e => entryView(e, req.hostAuth, req.visitor.id)) : [],
       messages: visible ? db.prepare(`SELECT id, author, message, hidden FROM messages WHERE contest_id=? ${req.hostAuth ? '' : 'AND hidden=0'} ORDER BY created DESC LIMIT 100`).all(c.id).map(censorBoardMessage) : [],
+      myEntries: c ? entryRows(c.id).filter(e => e.owner===req.visitor.id).map(e=>({...entryView(e,false,req.visitor.id),photoUrl:e.photo?`/api/my-entries/${e.id}/photo/${e.photo}`:null})) : [],
       myVotes: c ? db.prepare('SELECT category, entry_id AS entryId FROM votes WHERE contest_id=? AND voter=?').all(c.id, req.visitor.id) : [],
       winners, ...(req.hostAuth?{nextPartyUndo:undoInfo(c)}:{}) });
   });
@@ -296,7 +321,7 @@ export function createApp(options = {}) {
     db.exec('BEGIN IMMEDIATE');
     try{
       db.prepare('INSERT INTO contests VALUES (?,?,?,1,?)').run(contestId,title,JSON.stringify(settings),new Date(now()).toISOString());
-      db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,0,?)').run(id,contestId,name,category,'',file,req.visitor.id,new Date(now()).toISOString());
+      db.prepare('INSERT INTO entries (id,contest_id,name,category,caption,photo,owner,hidden,created) VALUES (?,?,?,?,?,?,?,0,?)').run(id,contestId,name,category,'',file,req.visitor.id,new Date(now()).toISOString());
       db.exec('COMMIT');
     }catch(e){db.exec('ROLLBACK');throw e;}
     res.status(201).json({id,contestId});
@@ -311,7 +336,7 @@ export function createApp(options = {}) {
     try{
       e=db.prepare('SELECT * FROM entries WHERE id=?').get(req.params.id);c=getContest(e.contest_id);
       const published=db.prepare('SELECT published FROM winners WHERE entry_id=?').get(e.id);
-      db.prepare('UPDATE entries SET name=?,category=?,photo=? WHERE id=?').run(name,category,file||e.photo,e.id);
+      db.prepare('UPDATE entries SET name=?,category=?,photo=?,revision=revision+1 WHERE id=?').run(name,category,file||e.photo,e.id);
       db.prepare('UPDATE contests SET title=?,settings=? WHERE id=?').run(title,JSON.stringify({...c.settings,categories:[category]}),c.id);
       if(published){db.prepare('DELETE FROM winners WHERE entry_id=?').run(e.id);db.prepare('INSERT INTO winners VALUES (?,?,?,?)').run(c.id,category,e.id,published.published);}
       db.exec('COMMIT');res.json({ok:true});
@@ -335,8 +360,10 @@ export function createApp(options = {}) {
     if (!latest || latest.id !== c.id || (!req.hostAuth && (phase(latest, now()) !== 'live' || !latest.settings.modules.enterContest || latest.settings.submissionMode === 'host_only'))) fail(403, 'The submission window has closed.');
     const id = randomUUID(), file = `${id}.jpg`;
     savePhoto(image,file);
-    db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,0,?)').run(id, c.id, name, category, caption, file, req.visitor.id, new Date(now()).toISOString());
-    res.status(201).json({ id });
+    const approval = stillHost(req) ? 'approved' : 'pending';
+    if(req.hostAuth && !stillHost(req)){unlinkSync(path.join(dataDir,'photos',file));fail(401,'Host session expired. Sign in again.');}
+    db.prepare('INSERT INTO entries (id,contest_id,name,category,caption,photo,owner,hidden,created,approval) VALUES (?,?,?,?,?,?,?,0,?,?)').run(id, c.id, name, category, caption, file, req.visitor.id, new Date(now()).toISOString(),approval);
+    res.status(201).json(entryView(db.prepare('SELECT * FROM entries WHERE id=?').get(id),!!req.hostAuth,req.visitor.id));
   });
   app.put('/api/entries/:id', (req, res) => {
     const e = db.prepare('SELECT * FROM entries WHERE id=?').get(req.params.id), c = e && getContest(e.contest_id);
@@ -348,12 +375,12 @@ export function createApp(options = {}) {
       if(!c.settings.categories.includes(category))fail(400,'Choose a contest category.');
       if(db.prepare('SELECT 1 FROM votes WHERE entry_id=?').get(e.id)||db.prepare('SELECT 1 FROM winners WHERE entry_id=?').get(e.id))fail(409,'Category is locked because this entry has votes or is a published winner.');
     }
-    db.prepare('UPDATE entries SET name=?,caption=?,category=? WHERE id=?').run(name,caption,category,e.id); res.json({ ok: true });
+    db.prepare('UPDATE entries SET name=?,caption=?,category=?,revision=revision+1 WHERE id=?').run(name,caption,category,e.id); res.json({ ok: true });
   });
   app.post('/api/votes', limiter(30), (req, res) => {
     const c = active(); if (!isOpen(c) || !c.settings.modules.voting) fail(403, 'Voting is closed.');
-    const e = db.prepare('SELECT * FROM entries WHERE id=? AND contest_id=? AND hidden=0').get(text(req.body.entryId, 80, true), c.id);
-    if (!e) fail(404, 'That entry is unavailable.');
+    const e = db.prepare('SELECT * FROM entries WHERE id=? AND contest_id=?').get(text(req.body.entryId, 80, true), c.id);
+    if (!eligible(e)) fail(404, 'That entry is unavailable.');
     try { db.prepare('INSERT INTO votes VALUES (?,?,?,?)').run(c.id, e.category, req.visitor.id, e.id); }
     catch (err) { if (db.prepare('SELECT 1 FROM votes WHERE contest_id=? AND category=? AND voter=?').get(c.id, e.category, req.visitor.id)) fail(409, 'You already voted in this category.'); throw err; }
     res.status(201).json({ ok: true });
@@ -364,11 +391,76 @@ export function createApp(options = {}) {
     if (db.prepare('SELECT COUNT(*) AS n FROM messages WHERE contest_id=?').get(c.id).n >= 1000) fail(409, 'The message board is full.');
     db.prepare('INSERT INTO messages VALUES (?,?,?,?,0,?)').run(randomUUID(), c.id, author, message, new Date(now()).toISOString()); res.status(201).json({ ok: true });
   });
-  app.get('/api/photos/:id', (req, res) => {
-    const e = db.prepare('SELECT * FROM entries WHERE id=?').get(req.params.id);
-    const winner = e && db.prepare('SELECT 1 FROM winners WHERE entry_id=?').get(e.id);
-    if (!e || (!req.hostAuth && !winner && (e.hidden || !isOpen(getContest(e.contest_id))))) fail(404, 'Photo is not publicly available.');
-    res.type('jpg'); res.sendFile(path.join(dataDir, 'photos', e.photo), { cacheControl: false, lastModified: false, etag: false });
+  function sendEntryPhoto(req,res,ownerOnly=false) {
+    const e=db.prepare('SELECT * FROM entries WHERE id=?').get(req.params.id);
+    if(!e || !e.photo || (req.params.file ? req.params.file!==e.photo : e.photo!==`${e.id}.jpg`))fail(404,'Photo is not available.');
+    if(ownerOnly){if(!req.visitor || e.owner!==req.visitor.id || e.approval==='withdrawn' || getContest(e.contest_id)?.archived)fail(404,'Photo is not available.');}
+    else if(!req.hostAuth && (!eligible(e) || (!published(e.id)&&!isOpen(getContest(e.contest_id)))))fail(404,'Photo is not publicly available.');
+    res.type('jpg');res.sendFile(path.join(dataDir,'photos',e.photo),{cacheControl:false,lastModified:false,etag:false});
+  }
+  app.get(['/api/photos/:id','/api/photos/:id/:file'],(req,res)=>sendEntryPhoto(req,res));
+  app.get('/api/my-entries/:id/photo/:file',(req,res)=>sendEntryPhoto(req,res,true));
+  app.get('/api/my-entries',(req,res)=>{
+    const c=active();
+    res.json(c&&req.visitor?entryRows(c.id).filter(e=>e.owner===req.visitor.id).map(e=>({...entryView(e,false,req.visitor.id),photoUrl:e.photo?`/api/my-entries/${e.id}/photo/${e.photo}`:null})):[]);
+  });
+  function ownedEntry(req) {
+    const e=db.prepare('SELECT * FROM entries WHERE id=?').get(req.params.id);
+    if(!e || (!stillHost(req)&&(e.owner!==req.visitor?.id || getContest(e.contest_id)?.archived)))fail(404,'Entry not found.');
+    return e;
+  }
+  function checkRevision(e,value) {
+    if(!((typeof value==='number'&&Number.isSafeInteger(value))||(typeof value==='string'&&/^\d+$/.test(value))) || Number(value)!==e.revision)fail(409,'This entry changed. Refresh and try again.');
+  }
+  function requireUnpublished(e) { if(published(e.id))fail(409,'Unpublish this winner first.'); }
+  function changeEntry(e,sql,values=[],removePhoto=false) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const result=db.prepare(`UPDATE entries SET ${sql}, revision=revision+1 WHERE id=? AND revision=?`).run(...values,e.id,e.revision);
+      if(result.changes!==1)fail(409,'This entry changed. Refresh and try again.');
+      if(removePhoto&&e.photo)db.prepare('INSERT OR IGNORE INTO photo_deletions VALUES (?)').run(e.photo);
+      db.exec('COMMIT');
+    }catch(error){db.exec('ROLLBACK');throw error;}
+    cleanDeletedPhotos();
+  }
+  app.post('/api/host/entries/:id/moderation',hostOnly,(req,res)=>{
+    const e=ownedEntry(req);checkRevision(e,req.body.revision);
+    const action=req.body.action;
+    if(!['approve','hide','restore','delete_photo'].includes(action))fail(400,'Invalid photo action.');
+    requireUnpublished(e);
+    if(action==='delete_photo') {
+      if(req.body.confirm!==true)fail(400,'Confirm permanent photo deletion.');
+      if(!e.photo)fail(409,'This photo was already removed.');
+      changeEntry(e,"photo='', approval=?, hidden=0",[e.approval==='withdrawn'?'withdrawn':'needs_replacement'],true);
+    }else{
+      if(!e.photo||['withdrawn','needs_replacement'].includes(e.approval))fail(409,'This entry needs a photo or is withdrawn.');
+      if(action==='approve')changeEntry(e,"approval='approved',hidden=0");
+      if(action==='hide')changeEntry(e,'hidden=1');
+      if(action==='restore')changeEntry(e,'hidden=0');
+    }
+    res.json({ok:true});
+  });
+  app.post('/api/entries/:id/withdraw',limiter(10),(req,res)=>{
+    const e=ownedEntry(req);checkRevision(e,req.body.revision);requireUnpublished(e);
+    if(req.body.confirm!==true)fail(400,'Confirm withdrawing this contestant.');
+    if(e.approval==='withdrawn')fail(409,'This entry is already withdrawn.');
+    changeEntry(e,"approval='withdrawn'");res.json({ok:true});
+  });
+  app.post('/api/entries/:id/replacement',limiter(10),reserveImageSlot,(req,res,next)=>{
+    const e=ownedEntry(req);
+    if(!canReplace(e,stillHost(req)))return res.status(403).json({error:'Replacement is unavailable. It must be requested by the host and arrive before voting closes.'});
+    next();
+  },upload.single('photo'),async(req,res)=>{
+    let e=ownedEntry(req);checkRevision(e,req.body.revision);
+    if(!canReplace(e,stillHost(req)))fail(403,'Replacement is unavailable.');
+    const revision=e.revision,image=await preparePhoto(req.file);
+    if(req.hostAuth&&!stillHost(req))fail(401,'Host session expired. Sign in again.');
+    e=ownedEntry(req);checkRevision(e,revision);
+    if(!canReplace(e,stillHost(req)))fail(403,'The replacement window has closed.');
+    const file=`${randomUUID()}.jpg`;savePhoto(image,file);
+    try { changeEntry(e,'photo=?,approval=?,hidden=0',[file,stillHost(req)?'approved':'pending']); }
+    catch(error){if(existsSync(path.join(dataDir,'photos',file)))unlinkSync(path.join(dataDir,'photos',file));throw error;}
+    res.json({ok:true,status:stillHost(req)?'approved':'pending'});
   });
   app.get('/api/host/contests/:id/archive', hostOnly, (req, res) => {
     const c = getContest(req.params.id); if (!c) fail(404, 'Contest not found.');
@@ -378,25 +470,32 @@ export function createApp(options = {}) {
     if (!['entries', 'messages'].includes(req.body.type) || typeof req.body.hidden !== 'boolean') fail(400, 'Invalid moderation request.');
     const id = text(req.body.id, 80, true);
     if (req.body.type === 'entries' && db.prepare('SELECT 1 FROM winners WHERE entry_id=?').get(id)) fail(409, 'Unpublish this winner before hiding its entry.');
-    db.prepare(`UPDATE ${req.body.type} SET hidden=? WHERE id=?`).run(req.body.hidden ? 1 : 0, id); res.json({ ok: true });
+    if(req.body.type==='entries'){
+      const e=db.prepare('SELECT * FROM entries WHERE id=?').get(id);if(!e)fail(404,'Entry not found.');
+      if(!e.photo||['withdrawn','needs_replacement'].includes(e.approval))fail(409,'This entry needs a photo or is withdrawn.');
+      changeEntry(e,'hidden=?',[req.body.hidden?1:0]);
+    }else db.prepare('UPDATE messages SET hidden=? WHERE id=?').run(req.body.hidden?1:0,id);
+    res.json({ok:true});
   });
   app.put('/api/host/winners', hostOnly, (req, res) => {
     const c = getContest(text(req.body.contestId, 80, true)); if (!c) fail(404, 'Contest not found.');
     if (phase(c, now()) !== 'closed') fail(409, 'Close voting before publishing winners.');
     const cat = text(req.body.category, 60, true);
     if (req.body.entryId === null) { db.prepare('DELETE FROM winners WHERE contest_id=? AND category=?').run(c.id, cat); return res.json({ ok: true }); }
-    const entries = entryRows(c.id).filter(e => !e.hidden && e.category === cat), max = Math.max(0, ...entries.map(e => e.votes));
+    const entries = entryRows(c.id).filter(e => eligible(e) && e.category === cat), max = Math.max(0, ...entries.map(e => e.votes));
     const winner = entries.find(e => e.id === req.body.entryId);
     if (!winner || (!c.settings.historical&&(max === 0 || winner.votes !== max))) fail(400, 'Choose a leading entry with at least one vote. The host decides tied results.');
     db.prepare('INSERT INTO winners VALUES (?,?,?,?) ON CONFLICT(contest_id,category) DO UPDATE SET entry_id=excluded.entry_id,published=excluded.published').run(c.id, cat, winner.id, new Date(now()).toISOString()); res.json({ ok: true });
   });
   app.get('/api/host/export', hostOnly, (req, res) => {
     const tables = Object.fromEntries(['contests', 'entries', 'votes', 'messages', 'winners'].map(t => [t, db.prepare(`SELECT * FROM ${t}`).all()]));
+    if(tables.entries.some(e=>e.photo&&!existsSync(path.join(dataDir,'photos',e.photo))))fail(409,'A referenced photo is missing. Backup was not created.');
+    activeExports++;res.once('close',()=>{activeExports--;cleanDeletedPhotos();});
     res.attachment(`party-archive-${new Date(now()).toISOString().slice(0,10)}.zip`);
     const zip = archiver('zip', { zlib: { level: 6 } });
     zip.on('error', err => res.destroy(err)); res.on('close', () => zip.abort()); zip.pipe(res);
-    zip.append(JSON.stringify({ version: 1, exportedAt: new Date(now()).toISOString(), tables }, null, 2), { name: 'archive.json' });
-    for (const e of tables.entries) zip.file(path.join(dataDir, 'photos', e.photo), { name: `photos/${e.photo}` });
+    zip.append(JSON.stringify({ version: 2, exportedAt: new Date(now()).toISOString(), tables }, null, 2), { name: 'archive.json' });
+    for (const e of tables.entries.filter(e=>e.photo)) zip.file(path.join(dataDir, 'photos', e.photo), { name: `photos/${e.photo}` });
     zip.finalize();
   });
   app.get('/api/qr', async (req, res) => { res.type('png').send(await QRCode.toBuffer(`${origin || `${req.protocol}://${req.get('host')}`}/party/`, { width: 600, margin: 2 })); });

@@ -10,6 +10,8 @@
   let syncing=null,offset=0,loginInFlight=false;
   let nextPartySource=null,nextPartyDraft=null,nextPartyBusy=false;
   let hallItems=[],hallEditId=null,hallSaving=false;
+  const replacementFiles=new Map();
+  const statusLabels={pending:'Pending',approved:'Approved',hidden:'Hidden',needs_replacement:'Needs Replacement',withdrawn:'Withdrawn'};
   const action=fn=>async(...args)=>{try{return await fn(...args);}catch(e){status(e.message);}};
   function status(message=''){ $('sync-status').textContent=message;$('sync-status').classList.toggle('hidden',!message);const loginError=$('host-login-error');if(loginError)loginError.textContent=message; }
   async function api(url,method='GET',body){
@@ -24,7 +26,7 @@
     if(name==='enter'&&!canUpload()){status('Photo submissions are closed.');return;}
     if(name==='vote'&&!canVote()){status('Voting is closed.');return;}
     if(view==='enter'&&name!=='enter')window.clearSelectedPhoto();
-    view=name;for(const v of ['main','enter','vote','past-winners','host','info'])$(`view-${v}`).classList.toggle('hidden',v!==name);
+    view=name;for(const v of ['main','enter','vote','past-winners','host','info','my-entries'])$(`view-${v}`).classList.toggle('hidden',v!==name);
     $('archive-panel').classList.toggle('hidden',name!=='host'||!data?.host);
     document.querySelectorAll('.nav-btn').forEach(b=>{b.classList.toggle('text-orange-400',b.dataset.view===name);});
     if(name==='host'){fillHost();loadArchives().catch(e=>status(e.message));loadHallOfFame().catch(e=>status(e.message));}$('page-scroll').scrollTo?.({top:0,behavior:'smooth'});
@@ -40,7 +42,7 @@
   async function refresh(){
     while(syncing)await syncing;
     const request=(async()=>{try{
-      const previousContestId=data?.contest?.id;data=await api('/api/state');if(previousContestId&&previousContestId!==data.contest?.id)window.clearSelectedPhoto();offset=data.serverTime-Date.now();status();render();
+      const previousContestId=data?.contest?.id,wasHost=data?.host;data=await api('/api/state');if(wasHost&&!data.host){archive=null;replacementFiles.clear();closeLightbox();close('entry-info-modal');$('archive-entries').replaceChildren();$('submitted-photos-list').replaceChildren();if(view==='host')switchView('main');}if(previousContestId&&previousContestId!==data.contest?.id){window.clearSelectedPhoto();replacementFiles.clear();}offset=data.serverTime-Date.now();status();render();
       if(data.host&&!newContest&&loadedContestId!==data.contest?.id){fillHost();loadedContestId=data.contest?.id;}
       if(data.host&&view==='host')await loadHallOfFame();
     }catch(e){status(e.message);}})();
@@ -72,7 +74,7 @@
     $('hero-headline-text').textContent=c?.title||'Geech’s Halloween Costume Contest';
     $('hero-subtext').textContent=openNow&&!canVote()&&!canUpload()?'Enjoy the party gallery and message board!':openNow&&!canVote()?'Contest entries are open. Voting is currently disabled.':openNow&&!canUpload()?'Vote on your favorite party entrants!':openNow?(data.phase==='live'?'Snap a photo or vote on your favorite party entrants!':'🗳️ Voting is open! Photo submissions are now closed.'):data.phase==='scheduled'?'Get your costume ready for the party!':'Celebrate our costume champions!';
     $('live-status-badge').textContent=openNow?'Contest Is Live':data.phase==='scheduled'?'Next Party Scheduled':'Past Champions';
-    const visibleEntries=openNow?data.entries.filter(e=>!e.hidden):data.winners;
+    const visibleEntries=openNow?data.entries.filter(e=>e.eligible):data.winners;
     $('home-photo-count-badge').textContent=`${visibleEntries.length} Photos`;
     for(const id of ['snap-action-btn','nav-btn-enter'])$(id).style.display=canUpload()?'flex':'none';
     for(const id of ['vote-action-btn','nav-btn-vote'])$(id).style.display=canVote()?'flex':'none';
@@ -84,21 +86,23 @@
     fillSelect('entry-category',cats);
     const tiles=$('home-category-tiles-container');tiles.replaceChildren();
     for(const cat of ['All',...cats])tiles.append(button(cat,()=>{filter=cat;renderGallery();renderVotes();},`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${cat===filter?'bg-orange-500 text-white':'bg-slate-800 text-gray-300'} border border-gray-700`));
-    renderGallery();renderVotes();renderWinners();renderMessages();renderHostCategories();renderLightboxVote();tick();
+    if(lightboxEntryId&&!data.entries.some(e=>e.id===lightboxEntryId&&e.eligible)&&!data.winners.some(e=>e.id===lightboxEntryId))closeLightbox();
+    if(pendingVote&&!data.entries.some(e=>e.id===pendingVote&&e.eligible))window.closeVoteModal();
+    renderGallery();renderVotes();renderWinners();renderMessages();renderHostCategories();renderSubmittedPhotos();renderMyEntries();renderLightboxVote();tick();
     $('archive-panel').classList.toggle('hidden',view!=='host'||!data.host);
     clearTimeout(privacyTimer);
     if(openNow&&!data.host){privacyTimer=setTimeout(()=>{data.phase='closed';data.entries=[];data.messages=[];closeLightbox();close('entry-info-modal');close('vote-confirm-modal');if(view==='vote'||view==='enter')switchView('main');render();refresh();},Math.max(0,Math.min(Date.parse(c.settings.end)-data.serverTime,2147483647)));}
   }
   function renderGallery(){
     const grid=$('home-photo-grid');grid.replaceChildren();
-    const list=(isOpen()?data.entries.filter(e=>!e.hidden):data.winners).filter(e=>filter==='All'||e.category===filter);
+    const list=(isOpen()?data.entries.filter(e=>e.eligible):data.winners).filter(e=>filter==='All'||e.category===filter);
     for(const e of list){const wrap=node('div','relative aspect-square rounded-2xl overflow-hidden bg-black/60 border border-gray-800 cursor-pointer shadow-lg');const img=node('img','w-full h-full object-cover');img.src=e.photoUrl;img.alt=e.name;img.loading='lazy';wrap.append(img);wrap.addEventListener('click',()=>window.openGalleryPhoto(e.id));grid.append(wrap);}
     if(!list.length&&canUpload()&&isOpen())for(const cat of (filter==='All'?data.contest.settings.categories:[filter])){const b=button('',()=>{fillSelect('entry-category',data.contest.settings.categories);$('entry-category').value=cat;switchView('enter');},'aspect-square rounded-2xl border-2 border-dashed border-orange-500/30 bg-orange-950/10 p-3 flex flex-col items-center justify-center text-center');b.append(node('span','text-xl text-orange-400','?'),node('span','text-xs font-bold text-gray-300',cat),node('span','text-[9px] text-orange-400','Tap to be 1st! 📸'));grid.append(b);}
     if(!grid.children.length)grid.append(node('p','text-xs text-gray-400 p-4',isOpen()?(canUpload()?'No entries yet. Be the first!':'No entries yet.'):'Published winners will appear here. Other photos remain in the host’s private archive.'));
   }
   function renderVotes(){
     const list=$('voting-feed-list');list.replaceChildren();if(!canVote())return;
-    for(const e of data.entries.filter(e=>!e.hidden&&(filter==='All'||e.category===filter))){
+    for(const e of data.entries.filter(e=>e.eligible&&(filter==='All'||e.category===filter))){
       const box=node('div','panel-card p-3 rounded-2xl space-y-2 shadow-xl vote-entry-card');const img=node('img','aspect-square w-full rounded-xl object-cover');img.src=e.photoUrl;img.alt=e.name;img.loading='lazy';img.addEventListener('click',()=>window.openGalleryPhoto(e.id));
       box.append(img,node('span','text-xs text-orange-300',e.category),node('h3','text-xs font-bold text-white',e.name),node('p','text-[10px] text-gray-400',e.caption));
       const used=data.myVotes.find(v=>v.category===e.category),b=button(used?(used.entryId===e.id?'✓ Voted!':'Category Voted'):'🍬 Cast Vote',()=>window.openVoteConfirmModal(e.id),'w-full px-2 py-2 rounded-xl btn-accent text-xs font-bold');b.disabled=!!used;box.append(b);list.append(box);
@@ -113,7 +117,7 @@
   function renderMessages(){const feed=$('message-board-feed');feed.replaceChildren();const messages=isOpen()?data.messages.filter(m=>!m.hidden):[];$('message-count-badge').textContent=`${messages.length} Messages`;for(const m of messages){const row=node('div','p-2.5 rounded-xl bg-black/40 border border-gray-800 space-y-1');row.append(node('span','text-xs font-bold text-purple-300',m.author),node('p','text-xs text-gray-200',m.message));feed.append(row);}if(!messages.length)feed.append(node('p','text-xs text-gray-300',isOpen()?'Be the first to leave a message or cheer!':data.phase==='scheduled'?'Chat opens when the party starts.':'Chat is closed until the next party.'));}
   function renderLightboxVote(){
     const vote=$('lightbox-vote');
-    const entry=lightboxEntryId&&data?.entries.find(e=>e.id===lightboxEntryId&&!e.hidden);
+    const entry=lightboxEntryId&&data?.entries.find(e=>e.id===lightboxEntryId&&e.eligible);
     const available=!!entry&&canVote();vote.classList.toggle('hidden',!available);
     if(!available){vote.disabled=true;return;}
     const used=data.myVotes.find(v=>v.category===entry.category);
@@ -156,7 +160,7 @@
     const results=$('archive-results');results.replaceChildren();
     const closed=archive.contest.archived||archive.contest.settings.override==='closed'||Date.parse(archive.contest.settings.end)<=Date.now()+offset,manual=!!archive.contest.settings.historical;
     for(const cat of archive.contest.settings.categories){
-      const rows=archive.entries.filter(e=>e.category===cat&&!e.hidden),max=Math.max(0,...rows.map(e=>e.votes));
+      const rows=archive.entries.filter(e=>e.category===cat&&e.eligible),max=Math.max(0,...rows.map(e=>e.votes));
       const box=node('div','archive-category');box.append(node('h3','text-xs font-bold text-orange-300',cat),node('p','text-xs text-gray-400',rows.map(e=>`${e.name}: ${e.votes}`).join(' · ')||'No entries'));
       const select=node('select','archive-control');select.append(node('option','','Choose a leading entry'));
       for(const e of rows.filter(e=>manual||(max>0&&e.votes===max))){const o=node('option','',manual?e.name:`${e.name} (${e.votes})`);o.value=e.id;select.append(o);}
@@ -164,8 +168,61 @@
       const publish=button(winner?'Update published winner':'Publish category winner',async()=>{if(!rows.some(e=>e.id===select.value))throw new Error('Select a leading entry.');if(!confirm('Publish this winning photo year-round? Anyone with the link can view or save it.'))return;await api('/api/host/winners','PUT',{contestId:id,category:cat,entryId:select.value});await refresh();await loadArchive();});publish.disabled=!closed||(!manual&&max===0);box.append(select,publish);
       if(winner)box.append(button('Unpublish winner',async()=>{await api('/api/host/winners','PUT',{contestId:id,category:cat,entryId:null});await refresh();await loadArchive();}));results.append(box);
     }
-    const gallery=$('archive-entries');gallery.replaceChildren();for(const e of archive.entries){const box=node('div','space-y-2'),img=node('img');img.src=e.photoUrl;img.alt=e.name;img.loading='lazy';const a=node('a','text-xs text-orange-300','Download photo ↗');a.href=e.photoUrl;a.download=`${e.id}.jpg`;box.append(img,node('p','text-xs text-gray-300',`${e.name} · ${e.votes} votes`),a,button('Edit details',()=>window.openEntryInfoModal(e.id)),button(e.hidden?'Restore entry':'Hide entry',async()=>{await api('/api/host/moderate','POST',{type:'entries',id:e.id,hidden:!e.hidden});await refresh();await loadArchive();}));gallery.append(box);}
+    const gallery=$('archive-entries');gallery.replaceChildren();for(const e of archive.entries)gallery.append(managementCard(e,true,true));
   }
+  async function updatePhotoState(e,actionName) {
+    if(actionName==='delete_photo'&&!confirm(`Permanently delete ${e.name}'s photo? The contestant and votes stay saved, but this photo cannot be restored here. Previously downloaded backups may still contain it.`))return;
+    await api(`/api/host/entries/${e.id}/moderation`,'POST',{action:actionName,revision:e.revision,confirm:actionName==='delete_photo'});
+    replacementFiles.delete(e.id);await refresh();if(archive)await loadArchive();status(actionName==='delete_photo'?'Photo removed. Contestant and votes preserved.':'Photo status saved.');
+  }
+  function managementCard(e,host=false,archived=false) {
+    const card=node('article','entry-management-card');
+    card.append(node('h3','text-sm font-bold',e.name),node('p','text-xs',e.category),node('p','entry-status',statusLabels[e.status]||e.status));
+    if(e.photoUrl&&e.status!=='withdrawn'){
+      const img=node('img');img.src=e.photoUrl;img.alt=e.name;img.loading='lazy';card.append(img);
+      const a=node('a','text-xs text-orange-300','Download photo');a.href=e.photoUrl;a.download=`${e.id}.jpg`;card.append(a);
+    }
+    if(host)card.append(node('p','text-xs',`${e.votes||0} recorded votes`));
+    if(e.published)card.append(node('p','text-xs','Published winner. Unpublish in Archives before changing photo status.'));
+    if(host&&!e.published&&e.photoUrl&&!['withdrawn','needs_replacement'].includes(e.status)){
+      if(e.status==='pending')card.append(button('Approve',()=>updatePhotoState(e,'approve')));
+      card.append(button(e.hidden?'Restore visibility':'Hide',()=>updatePhotoState(e,e.hidden?'restore':'hide')));
+    }
+    if(host&&e.photoUrl&&!e.published)card.append(button('Permanently Delete Photo',()=>updatePhotoState(e,'delete_photo')));
+    if(e.canReplace){
+      card.append(node('p','text-xs','Choose a replacement. Your contestant and recorded votes stay the same.'));
+      const input=node('input');input.type='file';input.accept='image/jpeg,image/png,image/webp';input.setAttribute('aria-label',`Replacement photo for ${e.name}`);
+      const selected=replacementFiles.get(e.id);if(selected&&selected.revision!==e.revision)replacementFiles.delete(e.id);
+      input.addEventListener('change',()=>{const file=input.files?.[0];if(file)replacementFiles.set(e.id,{file,revision:e.revision});});card.append(input);
+      if(replacementFiles.has(e.id))card.append(node('p','text-xs',`Selected: ${replacementFiles.get(e.id).file.name}`));
+      card.append(button('Submit Replacement',async()=>{
+        const selected=replacementFiles.get(e.id);if(!selected||selected.revision!==e.revision)throw new Error('Choose a replacement photo first.');
+        if(!['image/jpeg','image/png','image/webp'].includes(selected.file.type)||selected.file.size>8*1024*1024)throw new Error('Choose a JPEG, PNG or WebP up to 8 MB.');
+        const form=new FormData();form.append('revision',String(e.revision));form.append('photo',selected.file);
+        const saved=await api(`/api/entries/${e.id}/replacement`,'POST',form);replacementFiles.delete(e.id);await refresh();if(archive)await loadArchive();status(saved.status==='pending'?'Replacement sent. Waiting for host approval.':'Replacement approved.');
+      }));
+    }
+    if(e.canWithdraw&&!e.published)card.append(button('Withdraw Entry',async()=>{
+      if(!confirm(`Withdraw ${e.name} from this contest? The entry and recorded votes stay saved, but it will no longer be viewable or eligible to win.`))return;
+      await api(`/api/entries/${e.id}/withdraw`,'POST',{revision:e.revision,confirm:true});replacementFiles.delete(e.id);await refresh();if(archive)await loadArchive();status('Entry withdrawn. Recorded votes preserved.');
+    }));
+    if(host||(data.phase==='live'&&data.contest?.settings.modules?.enterContest!==false))card.append(button('Edit details',()=>window.openEntryInfoModal(e.id)));
+    return card;
+  }
+  function renderSubmittedPhotos(){
+    const list=$('submitted-photos-list');list.replaceChildren();if(!data.host)return;
+    const selected=$('submitted-photos-filter').value||'all';
+    const entries=data.entries.filter(e=>selected==='all'||e.status===selected);
+    for(const e of entries)list.append(managementCard(e,true));
+    if(!entries.length)list.append(node('p','text-xs text-gray-300','No submitted photos in this group.'));
+  }
+  function renderMyEntries(){
+    const list=$('my-entries-list');list.replaceChildren();
+    for(const e of data.myEntries||[])list.append(managementCard(e));
+    if(!list.children.length)list.append(node('p','text-xs text-gray-300','No entries submitted from this browser yet.'));
+  }
+  $('submitted-photos-filter').addEventListener('change',renderSubmittedPhotos);
+  $('open-my-entries').addEventListener('click',()=>switchView('my-entries'));
   window.switchView=switchView;
   function renderLoginMode(){
     $('host-auth-modal').querySelector('h3').textContent=(data?.localPreview||data?.demoMode)?'Host PIN':'Host Password';
@@ -208,12 +265,12 @@
   $('entry-take-photo').addEventListener('click',()=>{if(!canUpload())return;if(!entryCamera){status('Camera capture is unavailable. Use Upload Photo instead.');return;}window.clearSelectedPhoto();cameraContestId=data.contest.id;$('entry-camera-panel').hidden=false;entryCamera?.start();});
   $('camera-file-input').addEventListener('click',stopEntryCamera);
   globalThis.addEventListener?.('pagehide',()=>window.clearSelectedPhoto());
-  window.handleFormSubmit=action(async e=>{e.preventDefault();if(!photo||photo.size>8*1024*1024)throw new Error('Choose one JPEG, PNG, or WebP photo, up to 8 MB.');const form=new FormData();form.append('name',$('entry-name').value);form.append('category',$('entry-category').value);form.append('caption',$('entry-caption').value);form.append('photo',photo);await api('/api/entries','POST',form);window.clearSelectedPhoto();$('entry-name').value='';$('entry-caption').value='';await refresh();switchView('main');});
+  window.handleFormSubmit=action(async e=>{e.preventDefault();if(!photo||photo.size>8*1024*1024)throw new Error('Choose one JPEG, PNG, or WebP photo, up to 8 MB.');const form=new FormData();form.append('name',$('entry-name').value);form.append('category',$('entry-category').value);form.append('caption',$('entry-caption').value);form.append('photo',photo);const saved=await api('/api/entries','POST',form);window.clearSelectedPhoto();$('entry-name').value='';$('entry-caption').value='';await refresh();switchView(saved.status==='pending'?'my-entries':'main');status(saved.status==='pending'?'Photo submitted privately. Waiting for host approval.':'Photo submitted and approved.');});
   window.handlePostMessage=action(async e=>{e.preventDefault();await api('/api/messages','POST',{author:$('msg-author-input').value||'Anonymous Guest',message:$('msg-text-input').value});$('msg-text-input').value='';await refresh();});
-  window.openEntryInfoModal=id=>{const e=[...(data.host?archive?.entries||[]:[]),...data.entries,...data.winners].find(e=>e.id===id);if(!e)return;if(!data.host&&(!e.canEdit||data.phase!=='live'||data.contest?.settings.modules?.enterContest===false)){window.openLightbox(e.photoUrl,`${e.name} — ${e.category}`);return;}editId=id;const c=e.contestId===archive?.contest.id?archive.contest:data.contest;fillSelect('modal-entry-category',c?.id===e.contestId?c.settings.categories:[e.category]);$('modal-entry-name').value=e.name;$('modal-entry-caption').value=e.caption;$('modal-entry-category').value=e.category;const locked=!data.host||!!e.votes||data.winners.some(w=>w.id===id);$('modal-entry-category').disabled=locked;$('entry-category-help').textContent=locked?'Category stays fixed after votes are cast or a winner is published.':'The host can correct the category before this entry receives votes.';open('entry-info-modal');};
+  window.openEntryInfoModal=id=>{const e=[...(data.host?archive?.entries||[]:[]),...data.entries,...(data.myEntries||[]),...data.winners].find(e=>e.id===id);if(!e)return;if(!data.host&&(!e.canEdit||data.phase!=='live'||data.contest?.settings.modules?.enterContest===false)){window.openLightbox(e.photoUrl,`${e.name} — ${e.category}`);return;}editId=id;const c=e.contestId===archive?.contest.id?archive.contest:data.contest;fillSelect('modal-entry-category',c?.id===e.contestId?c.settings.categories:[e.category]);$('modal-entry-name').value=e.name;$('modal-entry-caption').value=e.caption;$('modal-entry-category').value=e.category;const locked=!data.host||!!e.votes||data.winners.some(w=>w.id===id);$('modal-entry-category').disabled=locked;$('entry-category-help').textContent=locked?'Category stays fixed after votes are cast or a winner is published.':'The host can correct the category before this entry receives votes.';open('entry-info-modal');};
   window.closeEntryInfoModal=()=>{close('entry-info-modal');editId=null;};
   window.saveEntryDetails=action(async e=>{e.preventDefault();if(!editId)return;await api(`/api/entries/${editId}`,'PUT',{name:$('modal-entry-name').value,caption:$('modal-entry-caption').value,...(!$('modal-entry-category').disabled?{category:$('modal-entry-category').value}:{})});window.closeEntryInfoModal();await refresh();if(view==='host'&&archive)await loadArchive();});
-  window.openVoteConfirmModal=id=>{const e=data.entries.find(e=>e.id===id);if(!e||!canVote())return;if(data.myVotes.some(v=>v.category===e.category)){status('You have already voted in this category.');return;}pendingVote=id;$('vote-modal-entry-info').textContent=`Vote for ${e.name} (${e.category})? One vote per browser per category. No email needed.`;open('vote-confirm-modal');};
+  window.openVoteConfirmModal=id=>{const e=data.entries.find(e=>e.id===id);if(!e||!e.eligible||!canVote())return;if(data.myVotes.some(v=>v.category===e.category)){status('You have already voted in this category.');return;}pendingVote=id;$('vote-modal-entry-info').textContent=`Vote for ${e.name} (${e.category})? One vote per browser per category. No email needed.`;open('vote-confirm-modal');};
   window.closeVoteModal=()=>{pendingVote=null;close('vote-confirm-modal');};
   window.confirmCastVote=action(async()=>{if(!pendingVote||!canVote()){window.closeVoteModal();return;}await api('/api/votes','POST',{entryId:pendingVote});window.closeVoteModal();await refresh();status('🍬 Your vote was saved!');});
   window.openLightbox=(url,caption)=>{lightboxEntryId=null;$('lightbox-img').src=url;$('lightbox-img').alt=caption;$('lightbox-caption').textContent=caption;renderLightboxVote();open('lightbox-modal');};

@@ -64,7 +64,7 @@ test('expiry, superseded links, cancellation, event isolation and existing auth 
  await guest.call('/api/guest-demo/verify',{eventId:f.eventId,token});
  assert.equal((await guest.call('/api/state')).data.host,false);
  assert.equal((await guest.call('/api/host/contests')).status,401);assert.equal((await guest.call('/api/host/export')).status,401);
- f.app.locals.db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,1,?)').run('private-photo',f.eventId,'Private Guest','Best','','not-public.jpg','other-owner',new Date().toISOString());
+ f.app.locals.db.prepare('INSERT INTO entries (id,contest_id,name,category,caption,photo,owner,hidden,created) VALUES (?,?,?,?,?,?,?,1,?)').run('private-photo',f.eventId,'Private Guest','Best','','not-public.jpg','other-owner',new Date().toISOString());
  assert.equal((await guest.call('/api/photos/private-photo')).status,404);
  assert.equal((await guest.call('/api/entries/private-photo',{name:'Hijack',caption:''},'PUT')).status,403);
  assert.equal((await guest.call('/api/host/contests',undefined,'GET',{Cookie:'host='+guest.cookies.get('guest_demo')})).status,401);

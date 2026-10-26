@@ -3,10 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { setImmediate as tick } from 'node:timers/promises';
+import { setImmediate as tick, setTimeout as delay } from 'node:timers/promises';
 import { createApp } from '../server.js';
 import { request } from './transport.js';
 import sharp from 'sharp';
@@ -114,7 +114,8 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   context.confirm=()=>false;
   const settings={start:new Date(clock-3600000).toISOString(),entriesClose:new Date(clock+3600000).toISOString(),end:new Date(clock+7200000).toISOString(),timezone:'America/Chicago',categories:['Funniest','Kids'],submissionMode:'guest',override:'auto'};
   app.locals.db.prepare('INSERT INTO contests VALUES (?,?,?,0,?)').run('gallery-test','Gallery test',JSON.stringify(settings),new Date(clock).toISOString());
-  app.locals.db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,0,?)').run('photo-one','gallery-test','Ghost','Funniest','Boo!','sample.jpg','test-owner',new Date(clock).toISOString());
+  app.locals.db.prepare('INSERT INTO entries (id,contest_id,name,category,caption,photo,owner,hidden,created) VALUES (?,?,?,?,?,?,?,0,?)').run('photo-one','gallery-test','Ghost','Funniest','Boo!','sample.jpg','test-owner',new Date(clock).toISOString());
+  writeFileSync(path.join(dir,'photos','sample.jpg'),cameraJpeg);
   await intervals[0]();
   const beforeCapture=app.locals.db.prepare('SELECT COUNT(*) n FROM entries').get().n;
   assert.equal(document.getElementById('camera-file-input').getAttribute('capture'),null);
@@ -126,6 +127,24 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   assert.equal(app.locals.db.prepare('SELECT COUNT(*) n FROM entries').get().n,beforeCapture,'Approval attaches a photo without submitting it');
   $('entry-name').value='Camera attachment test';$('entry-category').value='Funniest';await context.handleFormSubmit({preventDefault(){}});
   const captured=app.locals.db.prepare('SELECT * FROM entries WHERE name=?').get('Camera attachment test');assert.ok(captured,'Explicit submit uses the existing entry API');
+  // Exercise the real management UI, including cancellation and explicit replacement.
+  context.switchView('host');$('submitted-photos-filter').value='approved';$('submitted-photos-filter').dispatch('change');
+  assert.ok($('submitted-photos-list').children.some(card=>card.children.some(n=>n.textContent==='Camera attachment test')));
+  const manageCard=()=> $('submitted-photos-list').children.find(card=>card.children.some(n=>n.textContent==='Camera attachment test'));
+  const cardButton=name=>manageCard().children.find(n=>n.tagName==='BUTTON'&&n.textContent===name);
+  context.confirm=()=>false;cardButton('Permanently Delete Photo').dispatch('click');for(let i=0;i<15;i++)await tick();
+  assert.ok(app.locals.db.prepare('SELECT photo FROM entries WHERE id=?').get(captured.id).photo,'Cancelling deletion keeps the photo');
+  context.confirm=()=>true;cardButton('Permanently Delete Photo').dispatch('click');for(let i=0;i<30;i++)await tick();
+  assert.equal(app.locals.db.prepare('SELECT approval FROM entries WHERE id=?').get(captured.id).approval,'needs_replacement');
+  $('submitted-photos-filter').value='needs_replacement';$('submitted-photos-filter').dispatch('change');
+  const replacementInput=manageCard().children.find(n=>n.tagName==='INPUT');replacementInput.files=[new File([cameraJpeg],'replacement.jpg',{type:'image/jpeg'})];replacementInput.dispatch('change');
+  cardButton('Submit Replacement').dispatch('click');for(let i=0;i<100&&app.locals.db.prepare('SELECT approval FROM entries WHERE id=?').get(captured.id).approval!=='approved';i++)await delay(10);for(let i=0;i<30;i++)await tick();
+  assert.equal(app.locals.db.prepare('SELECT approval FROM entries WHERE id=?').get(captured.id).approval,'approved');
+  app.locals.db.prepare("UPDATE entries SET approval='pending',revision=revision+1 WHERE id=?").run(captured.id);await intervals[0]();
+  $('submitted-photos-filter').value='pending';$('submitted-photos-filter').dispatch('change');cardButton('Approve').dispatch('click');for(let i=0;i<30;i++)await tick();
+  assert.equal(app.locals.db.prepare('SELECT approval FROM entries WHERE id=?').get(captured.id).approval,'approved');
+  $('open-my-entries').dispatch('click');assert.equal($('view-my-entries').classList.contains('hidden'),false);assert.ok($('my-entries-list').children.length);
+  context.confirm=()=>false;
   app.locals.db.prepare('DELETE FROM entries WHERE id=?').run(captured.id);await intervals[0]();
   context.switchView('enter');$('entry-take-photo').dispatch('click');for(let i=0;i<15;i++)await tick();context.switchView('main');assert.equal(cameraTracks.at(-1).stopped,true,'Leaving entry view stops camera');assert.equal($('entry-camera-panel').hidden,true);
   const initialClock=clock;
@@ -165,7 +184,7 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   $('home-photo-grid').children[0].dispatch('click');
   assert.equal($('lightbox-modal').classList.contains('hidden'),false);
   assert.equal($('entry-info-modal').classList.contains('hidden'),true);
-  assert.equal($('lightbox-img').src,'/api/photos/photo-one');
+  assert.equal($('lightbox-img').src,'/api/photos/photo-one/sample.jpg');
   assert.equal($('lightbox-vote').classList.contains('hidden'),false);
   assert.equal($('lightbox-vote').disabled,false);
   $('lightbox-vote').dispatch('click');
@@ -277,7 +296,7 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   assert.equal($('view-main').classList.contains('hidden'),false);
   for(const id of ['snap-action-btn','nav-btn-enter','vote-action-btn','nav-btn-vote'])assert.equal($(id).style.display,'none');
   assert.equal($('vote-confirm-modal').classList.contains('hidden'),true);
-  context.openLightbox('/api/photos/photo-one','Ghost');assert.equal($('lightbox-vote').classList.contains('hidden'),true);context.closeLightbox();
+  context.openLightbox('/api/photos/photo-one/sample.jpg','Ghost');assert.equal($('lightbox-vote').classList.contains('hidden'),true);context.closeLightbox();
   context.switchView('enter');assert.equal($('view-enter').classList.contains('hidden'),true);
   setModules(true,false);await intervals[0]();assert.equal($('nav-btn-enter').style.display,'flex');assert.equal($('nav-btn-vote').style.display,'none');
   context.switchView('enter');setModules(false,true);await intervals[0]();assert.equal($('view-enter').classList.contains('hidden'),true);assert.equal($('nav-btn-vote').style.display,'flex');

@@ -43,6 +43,8 @@ test('shared voting, private archives, publication, backup recovery, and auth bo
     return call(b,'/api/entries','POST',form);
   }
   const one=await entry(guest,'A ghost'),two=await entry(other,'A pumpkin');assert.equal(one.status,201);assert.equal(two.status,201);
+  assert.equal((await call(other,'/api/state')).data.entries.length,0,'Guest photos wait for approval');
+  for(const e of [one,two])assert.equal((await call(host,`/api/host/entries/${e.data.id}/moderation`,'POST',{action:'approve',revision:e.data.revision})).status,200);
   const s=await call(other,'/api/state');assert.equal(s.data.entries.length,2);assert.ok(!JSON.stringify(s.data).includes('owner'));
   assert.equal((await call(other,`/api/entries/${one.data.id}`,'PUT',{name:'Hijack',caption:''})).status,403);
   const image=await call(guest,`/api/photos/${one.data.id}`);assert.equal(image.status,200);assert.match(image.headers.get('cache-control'),/no-store/);

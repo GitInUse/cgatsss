@@ -12,15 +12,15 @@ export async function restore(file, target) {
   const manifest = zip.files.find(f => f.path === 'archive.json');
   if (!manifest || manifest.uncompressedSize > 30 * 1024 * 1024) throw new Error('Missing or oversized archive manifest.');
   const data = JSON.parse((await manifest.buffer()).toString('utf8'));
-  if (data.version !== 1 || !data.tables || !['contests','entries','votes','messages','winners'].every(t => Array.isArray(data.tables[t]))) throw new Error('Unsupported archive format.');
+  if (![1,2].includes(data.version) || !data.tables || !['contests','entries','votes','messages','winners'].every(t => Array.isArray(data.tables[t]))) throw new Error('Unsupported archive format.');
   const columns = {
     contests:['id','title','settings','archived','created'],
-    entries:['id','contest_id','name','category','caption','photo','owner','hidden','created'],
+    entries:['id','contest_id','name','category','caption','photo','owner','hidden','created',...(data.version===2?['approval','revision']:[])],
     votes:['contest_id','category','voter','entry_id'],
     messages:['id','contest_id','author','message','hidden','created'],
     winners:['contest_id','category','entry_id','published']
   };
-  const photos = new Set(data.tables.entries.map(e=>e.photo));
+  const photos = new Set(data.tables.entries.map(e=>e.photo).filter(Boolean));
   let size = 0;
   for (const name of photos) {
     if (!/^[a-f0-9-]{36}\.jpg$/.test(name)) throw new Error('Unsafe photo filename.');

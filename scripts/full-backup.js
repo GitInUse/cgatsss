@@ -17,7 +17,7 @@ export function verifySnapshot(file){
  try{
   if(db.prepare('PRAGMA quick_check').get().quick_check!=='ok'||db.prepare('PRAGMA foreign_key_check').all().length)throw new Error('Backup database failed integrity checks.');
   for(const table of ['contests','entries','votes','messages','winners'])if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))throw new Error('Backup database is missing application tables.');
-  return db.prepare('SELECT DISTINCT photo FROM entries ORDER BY photo').all().map(row=>row.photo);
+  return db.prepare("SELECT DISTINCT photo FROM entries WHERE photo<>'' ORDER BY photo").all().map(row=>row.photo);
  }finally{db.close();}
 }
 export async function digestFile(file){
