@@ -1,3 +1,4 @@
+import {installGuestDemo} from './scripts/guest-demo.js';
 import {censorMessage,censorBoardMessage} from './scripts/profanity.js';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
@@ -85,6 +86,7 @@ export function createApp(options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   const demoMode = process.env.DEMO_MODE === 'true';
   const localPreview = options.localPreview === true && !production;
+  const guestDemoEnabled=demoMode||localPreview;
   const password = options.password ?? (demoMode ? '1031' : process.env.HOST_PASSWORD ?? (localPreview ? '1031' : undefined));
   const validPreviewPin = (localPreview || demoMode) && /^\d{4,8}$/.test(password || '');
   if (!password || (password.length < 12 && !validPreviewPin)) throw new Error('Set HOST_PASSWORD to a unique password of at least 12 characters.');
@@ -145,7 +147,7 @@ export function createApp(options = {}) {
     const cookies = Object.fromEntries((req.headers.cookie || '').split(';').map(v => v.trim().split('=')));
     req.hostAuth = /^[a-f0-9]{64}$/.test(cookies.host || '') && !!db.prepare('SELECT id FROM sessions WHERE id=? AND expires>?').get(hash(cookies.host), now());
     let visitor = /^[a-f0-9]{64}$/.test(cookies.visitor || '') && db.prepare('SELECT * FROM visitors WHERE id=?').get(hash(cookies.visitor));
-    if (!visitor && req.path === '/api/state') {
+    if (!visitor && (req.path === '/api/state' || (guestDemoEnabled && req.path === '/api/guest-demo/session'))) {
       const v = token(); visitor = { id: hash(v), csrf: token(), created: now() };
       db.prepare('INSERT INTO visitors VALUES (?,?,?)').run(visitor.id, visitor.csrf, visitor.created);
       res.cookie('visitor', v, { httpOnly: true, secure: production, sameSite: 'lax', path: '/', maxAge: 400 * 86400000 });
@@ -160,13 +162,14 @@ export function createApp(options = {}) {
   const limiter = (limit, windowMs = 60000) => rateLimit({ windowMs, limit: options.testing ? 10000 : limit, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many requests. Please wait a moment.' } });
   app.use('/api', limiter(300));
   app.use(express.json({ limit: '64kb' }));
+  installGuestDemo({app,db,enabled:guestDemoEnabled,production,now,active,limiter});
   const hostOnly = (req, res, next) => req.hostAuth ? next() : res.status(401).json({ error: 'Host login required.' });
   app.get('/healthz', (req, res) => { db.prepare('SELECT 1').get(); res.json({ ok: true }); });
   app.get('/api/state', (req, res) => {
     const c = active(), currentPhase = phase(c, now());
     const visible = c && (req.hostAuth || isOpen(c));
     const winners = db.prepare(`SELECT e.*, c.title, w.published FROM winners w JOIN entries e ON e.id=w.entry_id JOIN contests c ON c.id=w.contest_id ORDER BY w.published DESC`).all().map(e => ({ ...entryView(e), contestTitle: e.title }));
-    res.json({ csrf: req.visitor.csrf, host: !!req.hostAuth, localPreview, demoMode, serverTime: now(), phase: currentPhase,
+    res.json({ csrf: req.visitor.csrf, host: !!req.hostAuth, localPreview, demoMode, guestDemoAvailable:guestDemoEnabled, serverTime: now(), phase: currentPhase,
       contest: c ? { id: c.id, title: c.title, settings: c.settings } : null,
       entries: visible ? entryRows(c.id).filter(e => req.hostAuth || !e.hidden).map(e => entryView(e, req.hostAuth, req.visitor.id)) : [],
       messages: visible ? db.prepare(`SELECT id, author, message, hidden FROM messages WHERE contest_id=? ${req.hostAuth ? '' : 'AND hidden=0'} ORDER BY created DESC LIMIT 100`).all(c.id).map(censorBoardMessage) : [],
