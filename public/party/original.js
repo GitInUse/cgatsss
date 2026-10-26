@@ -50,6 +50,8 @@
     if(data.demoMode&&!demoNotice){demoNotice=node('div','p-3 text-center text-xs','FREE SAMPLE — Use test photos only. Photos, votes, messages and settings may reset when this service sleeps, restarts or updates.');demoNotice.id='demo-notice';demoNotice.setAttribute('role','note');document.body.prepend(demoNotice);}
     if(demoNotice)demoNotice.hidden=!data.demoMode;
     const c=data.contest,openNow=isOpen();
+    const cameraInfo=$('camera-demo-info');cameraInfo.hidden=!data.guestDemoAvailable;
+    if(!cameraInfo.children.length){const link=node('a','text-amber-300','Try photo booth demo (camera only)');link.href='/party/photobooth-demo/';cameraInfo.append(link);}
     const demoInfo=$('guest-demo-info');demoInfo.hidden=!(data.guestDemoAvailable&&c);
     if(!demoInfo.children.length){const link=node('a','text-amber-300','Try guest sign-in demo (fictional email only)');link.href='/party/guest-demo/';demoInfo.append(link);}
     if(view==='enter'&&!canUpload()){window.clearSelectedPhoto();close('entry-info-modal');switchView('main');}
