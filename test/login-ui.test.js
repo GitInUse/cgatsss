@@ -114,7 +114,12 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   context.switchView('host');assert.equal($('host-module-countdowns').checked,true);
   $('host-module-countdowns').checked=false;context.confirm=()=>true;await context.saveHostScheduleSettings();await intervals[0]();
   assert.equal($('countdown-banner').children.length,0);assert.equal($('countdown-banner').classList.contains('hidden'),true);
-  context.openWizardModal();assert.equal($('wizard-module-countdowns').checked,false);$('wizard-module-countdowns').checked=true;await context.finishHostWizard();await intervals[0]();
+  context.openWizardModal();assert.equal($('wizard-module-countdowns').checked,false);
+  for(const key of ['enterContest','voting']){assert.equal($('wizard-module-'+key).checked,true);$('wizard-module-'+key).checked=false;}
+  $('wizard-module-countdowns').checked=true;await context.finishHostWizard();await intervals[0]();
+  assert.equal(JSON.parse(app.locals.db.prepare('SELECT settings FROM contests WHERE archived=0').get().settings).modules.voting,false);
+  assert.equal($('host-module-enterContest').checked,false);assert.equal($('host-module-voting').checked,false);
+  context.openWizardModal();for(const key of ['enterContest','voting']){assert.equal($('wizard-module-'+key).checked,false);$('wizard-module-'+key).checked=true;}await context.finishHostWizard();await intervals[0]();
   assert.equal($('countdown-banner').children.length,3);assert.equal($('host-module-countdowns').checked,true);context.confirm=()=>false;
   assert.equal($('message-board-feed').closest('.panel-card').classList.contains('hidden'),false);
   assert.equal($('msg-text-input').disabled,true);
@@ -244,4 +249,18 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   hallRow=$('host-past-winners-list').children.find(row=>row.querySelector('h4')?.textContent==='Edited Champion');
   hallRow.querySelectorAll('button')[1].dispatch('click');for(let i=0;i<40;i++)await tick();
   assert.equal(app.locals.db.prepare('SELECT 1 FROM winners WHERE entry_id=?').get(historical.id),undefined);
+  // Polling must close stale guest screens and hide every entry/vote shortcut.
+  clock=initialClock;
+  const setModules=(enterContest,voting)=>app.locals.db.prepare('UPDATE contests SET settings=? WHERE id=?').run(JSON.stringify({...settings,modules:{countdowns:true,enterContest,voting}}),'gallery-test');
+  setModules(true,true);await context.lockHostSession();await intervals[0]();
+  context.switchView('vote');context.openVoteConfirmModal('photo-one');
+  setModules(false,false);await intervals[0]();
+  assert.equal($('view-main').classList.contains('hidden'),false);
+  for(const id of ['snap-action-btn','nav-btn-enter','vote-action-btn','nav-btn-vote'])assert.equal($(id).style.display,'none');
+  assert.equal($('vote-confirm-modal').classList.contains('hidden'),true);
+  context.openLightbox('/api/photos/photo-one','Ghost');assert.equal($('lightbox-vote').classList.contains('hidden'),true);context.closeLightbox();
+  context.switchView('enter');assert.equal($('view-enter').classList.contains('hidden'),true);
+  setModules(true,false);await intervals[0]();assert.equal($('nav-btn-enter').style.display,'flex');assert.equal($('nav-btn-vote').style.display,'none');
+  context.switchView('enter');setModules(false,true);await intervals[0]();assert.equal($('view-enter').classList.contains('hidden'),true);assert.equal($('nav-btn-vote').style.display,'flex');
+
 });

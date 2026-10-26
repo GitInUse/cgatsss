@@ -23,7 +23,7 @@ const text = (v, max = 120, required = false) => {
   return v.trim();
 };
 // Add future implemented modules here; old events retain their original behavior.
-export const EVENT_MODULE_DEFAULTS = Object.freeze({ countdowns: true });
+export const EVENT_MODULE_DEFAULTS = Object.freeze({ countdowns: true, enterContest: true, voting: true });
 export function eventModules(input, previous = EVENT_MODULE_DEFAULTS) {
   if (input === undefined) return { ...EVENT_MODULE_DEFAULTS, ...previous };
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !Object.hasOwn(EVENT_MODULE_DEFAULTS, key)) || Object.values(input).some(value => typeof value !== 'boolean')) fail(400, 'Choose valid event module switches.');
@@ -314,18 +314,18 @@ export function createApp(options = {}) {
     if (uploadsInFlight >= 2) return res.status(429).json({ error: 'Two photos are processing. Please try again in a few seconds.' });
     uploadsInFlight++;
     res.once('close', () => { uploadsInFlight--; });
-    const c = active(); if (!c || (!req.hostAuth && (phase(c, now()) !== 'live' || c.settings.submissionMode === 'host_only'))) return res.status(403).json({ error: 'Photo submissions are closed.' });
+    const c = active(); if (!c || (!req.hostAuth && (phase(c, now()) !== 'live' || !c.settings.modules.enterContest || c.settings.submissionMode === 'host_only'))) return res.status(403).json({ error: 'Photo submissions are closed.' });
     next();
   }, upload.single('photo'), async (req, res) => {
     const c = active();
-    if (!c || (!req.hostAuth && (phase(c, now()) !== 'live' || c.settings.submissionMode === 'host_only'))) fail(403, 'Photo submissions are closed.');
+    if (!c || (!req.hostAuth && (phase(c, now()) !== 'live' || !c.settings.modules.enterContest || c.settings.submissionMode === 'host_only'))) fail(403, 'Photo submissions are closed.');
     const name = text(req.body.name, 100, true), category = text(req.body.category, 60, true), caption = text(req.body.caption || '', 300);
     if (!c.settings.categories.includes(category)) fail(400, 'Choose a contest category.');
     if (entryRows(c.id).length >= 500) fail(409, 'This contest has reached its 500-entry limit.');
     const image=await preparePhoto(req.file);
     // Image conversion is asynchronous: recheck the event after conversion before accepting it.
     const latest = active();
-    if (!latest || latest.id !== c.id || (!req.hostAuth && (phase(latest, now()) !== 'live' || latest.settings.submissionMode === 'host_only'))) fail(403, 'The submission window has closed.');
+    if (!latest || latest.id !== c.id || (!req.hostAuth && (phase(latest, now()) !== 'live' || !latest.settings.modules.enterContest || latest.settings.submissionMode === 'host_only'))) fail(403, 'The submission window has closed.');
     const id = randomUUID(), file = `${id}.jpg`;
     savePhoto(image,file);
     db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,0,?)').run(id, c.id, name, category, caption, file, req.visitor.id, new Date(now()).toISOString());
@@ -333,7 +333,7 @@ export function createApp(options = {}) {
   });
   app.put('/api/entries/:id', (req, res) => {
     const e = db.prepare('SELECT * FROM entries WHERE id=?').get(req.params.id), c = e && getContest(e.contest_id);
-    if (!e || (!req.hostAuth && (e.owner !== req.visitor.id || phase(c, now()) !== 'live'))) fail(403, 'This entry cannot be edited now.');
+    if (!e || (!req.hostAuth && (e.owner !== req.visitor.id || phase(c, now()) !== 'live' || !c.settings.modules.enterContest))) fail(403, 'This entry cannot be edited now.');
     const name = text(req.body.name, 100, true), caption = text(req.body.caption || '', 300);
     const category=req.body.category===undefined?e.category:text(req.body.category,60,true);
     if(category!==e.category){
@@ -344,7 +344,7 @@ export function createApp(options = {}) {
     db.prepare('UPDATE entries SET name=?,caption=?,category=? WHERE id=?').run(name,caption,category,e.id); res.json({ ok: true });
   });
   app.post('/api/votes', limiter(30), (req, res) => {
-    const c = active(); if (!isOpen(c)) fail(403, 'Voting is closed.');
+    const c = active(); if (!isOpen(c) || !c.settings.modules.voting) fail(403, 'Voting is closed.');
     const e = db.prepare('SELECT * FROM entries WHERE id=? AND contest_id=? AND hidden=0').get(text(req.body.entryId, 80, true), c.id);
     if (!e) fail(404, 'That entry is unavailable.');
     try { db.prepare('INSERT INTO votes VALUES (?,?,?,?)').run(c.id, e.category, req.visitor.id, e.id); }
