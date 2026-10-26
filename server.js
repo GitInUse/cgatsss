@@ -1,4 +1,3 @@
-import {photoBoothDemoPage} from './scripts/photobooth-demo-page.js';
 import {installGuestDemo} from './scripts/guest-demo.js';
 import {censorMessage,censorBoardMessage} from './scripts/profanity.js';
 import express from 'express';
@@ -165,9 +164,7 @@ export function createApp(options = {}) {
   app.use(express.json({ limit: '64kb' }));
   app.get(['/party/photobooth-demo','/party/photobooth-demo/'],(req,res)=>{
     if(!guestDemoEnabled)return res.status(404).json({error:'Not found.'});
-    if(req.path!=='/party/photobooth-demo/')return res.redirect(303,'/party/photobooth-demo/');
-    res.set({'X-Robots-Tag':'noindex, nofollow','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; media-src 'self' blob:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"});
-    res.type('html').send(photoBoothDemoPage);
+    res.redirect(302,'https://idontthinkiwill.com/photobooth');
   });
   installGuestDemo({app,db,enabled:guestDemoEnabled,production,now,active,limiter});
   const hostOnly = (req, res, next) => req.hostAuth ? next() : res.status(401).json({ error: 'Host login required.' });

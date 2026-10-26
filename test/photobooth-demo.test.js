@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import {createApp} from '../server.js';
 import {photoBoothDemoPage} from '../scripts/photobooth-demo-page.js';
 import {request} from './transport.js';
-const script=readFileSync(new URL('../public/party/photobooth-demo.js',import.meta.url),'utf8');
+const script=readFileSync(new URL('../public/party/camera-controller.js',import.meta.url),'utf8')+'\n'+readFileSync(new URL('../public/party/photobooth-demo.js',import.meta.url),'utf8');
 function fixture({error,unsupported=false,deferPermission=false,deferBlob=false}={}){
  const elements=new Map(),events={},timers=new Map(),created=[],revoked=[],streams=[],calls=[];let permissionResolve,blobResolve,draws=0,sequence=0;
  function element(tag='div'){const attrs={},events={};return{tagName:tag.toUpperCase(),hidden:false,disabled:false,value:'',textContent:'',children:[],events,append(child){this.children.push(child);},replaceChildren(){this.children=[];},addEventListener(name,fn){events[name]=fn;},removeAttribute(name){delete attrs[name];},getAttribute:name=>attrs[name]??null,dispatch(name){return events[name]?.({preventDefault(){}});},get src(){return attrs.src;},set src(v){attrs.src=v;},get href(){return attrs.href;},set href(v){attrs.href=v;},get download(){return attrs.download;},set download(v){attrs.download=v;}};}
@@ -47,10 +47,6 @@ test('unavailable or denied cameras show usable errors without requesting audio'
  for(const [name,pattern]of [['NotAllowedError',/permission/],['NotFoundError',/No usable camera/],['NotReadableError',/other apps/]]){const f=fixture({error:name});await f.$('start-camera').dispatch('click');assert.match(f.$('camera-status').textContent,pattern);assert.equal(f.$('start-panel').hidden,false);assert.equal(f.calls[0].audio,false);}
  const f=fixture();await f.$('start-camera').dispatch('click');f.$('camera-preview').readyState=0;f.$('camera-preview').events.loadeddata();assert.equal(f.$('take-photo').disabled,true);await f.$('take-photo').dispatch('click');assert.equal(f.draws,0);
 });
-test('camera demo route forbids network connections and is disabled outside demo/preview mode',async()=>{
- for(const enabled of [false,true]){
-  const dir=mkdtempSync(path.join(tmpdir(),'booth-page-'));const app=createApp({dataDir:dir,production:false,localPreview:enabled,password:'test-only-booth-password',testing:true});
-  try{const response=await request(app,'http://party.test/party/photobooth-demo/');assert.equal(response.status,enabled?200:404);if(enabled){assert.match(response.headers.get('content-security-policy'),/connect-src 'none'/);assert.match(response.headers.get('permissions-policy'),/microphone=\(\)/);assert.match(response.headers.get('cache-control'),/no-store/);assert.match(Buffer.from(await response.arrayBuffer()).toString(),/Finish \/ Next guest/);assert.equal(app.locals.db.prepare('SELECT COUNT(*) n FROM entries').get().n,0);}}
-  finally{app.locals.db.close();rmSync(dir,{recursive:true,force:true});}
- }
+test('legacy demo redirects to the independent booth and stays disabled outside demo mode',async()=>{
+ for(const enabled of [false,true]){const dir=mkdtempSync(path.join(tmpdir(),'booth-page-')),app=createApp({dataDir:dir,production:false,localPreview:enabled,password:'test-only-booth-password',testing:true});try{for(const route of ['/party/photobooth-demo','/party/photobooth-demo/']){const response=await request(app,'http://party.test'+route);assert.equal(response.status,enabled?302:404);if(enabled)assert.equal(response.headers.get('location'),'https://idontthinkiwill.com/photobooth');}assert.equal(app.locals.db.prepare('SELECT COUNT(*) n FROM entries').get().n,0);}finally{app.locals.db.close();rmSync(dir,{recursive:true,force:true});}}
 });

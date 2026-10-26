@@ -59,8 +59,15 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   const script=readFileSync(new URL('../public/party/original.js',import.meta.url),'utf8');
   const document=fixture(html),cookies=new Map(),origin='http://party.test';
   const intervals=[];
-  const context={document,console,FormData,URL,AbortSignal,Intl,Date,Promise,setTimeout:()=>0,clearTimeout(){},setInterval:fn=>{intervals.push(fn);return 0;},location:{origin},scrollTo(){},confirm:()=>false,prompt:()=>null};
+  const context={document,console,FormData,File,URL,AbortSignal,Intl,Date,Promise,setTimeout:()=>0,clearTimeout(){},setInterval:fn=>{intervals.push(fn);return 0;},location:{origin},scrollTo(){},confirm:()=>false,prompt:()=>null};
   context.window=context;
+  const cameraJpeg=await sharp({create:{width:16,height:16,channels:3,background:'#ff8800'}}).jpeg().toBuffer();
+  const cameraTracks=[],cameraVideo=document.getElementById('entry-camera-camera-preview');
+  Object.assign(cameraVideo,{readyState:2,videoWidth:16,videoHeight:16,pause(){},async play(){}});
+  context.addEventListener=()=>{};context.isSecureContext=true;context.navigator={mediaDevices:{async getUserMedia(options){assert.equal(options.audio,false);const track={stop(){this.stopped=true;},getSettings:()=>({deviceId:'test-camera'})};cameraTracks.push(track);return{getTracks:()=>[track],getVideoTracks:()=>[track]};},async enumerateDevices(){return[];}}};
+  const createElement=document.createElement;document.createElement=tag=>{const el=createElement(tag);if(tag==='canvas'){el.getContext=()=>({drawImage(){}});el.toBlob=fn=>fn(new Blob([cameraJpeg],{type:'image/jpeg'}));}return el;};
+  vm.runInNewContext(readFileSync(new URL('../public/party/camera-controller.js',import.meta.url),'utf8'),context,{filename:'camera-controller.js'});
+
   context.fetch=async(url,options={})=>{
     const headers={...options.headers,Cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join('; ')};
     if(options.method&&options.method!=='GET')headers.Origin=origin;
@@ -109,6 +116,18 @@ test('original page unlocks and gallery photos enlarge with voting instead of ed
   app.locals.db.prepare('INSERT INTO contests VALUES (?,?,?,0,?)').run('gallery-test','Gallery test',JSON.stringify(settings),new Date(clock).toISOString());
   app.locals.db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,0,?)').run('photo-one','gallery-test','Ghost','Funniest','Boo!','sample.jpg','test-owner',new Date(clock).toISOString());
   await intervals[0]();
+  const beforeCapture=app.locals.db.prepare('SELECT COUNT(*) n FROM entries').get().n;
+  assert.equal(document.getElementById('camera-file-input').getAttribute('capture'),null);
+  assert.ok(html.indexOf('/party/camera-controller.js')<html.indexOf('/party/original.js'));
+  context.switchView('enter');$('entry-take-photo').dispatch('click');for(let i=0;i<15;i++)await tick();
+  assert.equal($('entry-camera-panel').hidden,false);$('entry-camera-countdown-seconds').value='0';$('entry-camera-take-photo').dispatch('click');for(let i=0;i<15;i++)await tick();
+  assert.equal(cameraTracks.at(-1).stopped,true);$('entry-camera-approve-photo').dispatch('click');
+  assert.equal($('entry-camera-panel').hidden,true);assert.equal($('image-preview-container').classList.contains('hidden'),false);
+  assert.equal(app.locals.db.prepare('SELECT COUNT(*) n FROM entries').get().n,beforeCapture,'Approval attaches a photo without submitting it');
+  $('entry-name').value='Camera attachment test';$('entry-category').value='Funniest';await context.handleFormSubmit({preventDefault(){}});
+  const captured=app.locals.db.prepare('SELECT * FROM entries WHERE name=?').get('Camera attachment test');assert.ok(captured,'Explicit submit uses the existing entry API');
+  app.locals.db.prepare('DELETE FROM entries WHERE id=?').run(captured.id);await intervals[0]();
+  context.switchView('enter');$('entry-take-photo').dispatch('click');for(let i=0;i<15;i++)await tick();context.switchView('main');assert.equal(cameraTracks.at(-1).stopped,true,'Leaving entry view stops camera');assert.equal($('entry-camera-panel').hidden,true);
   const initialClock=clock;
   clock-=2*3600000;await intervals[0]();assert.equal($('countdown-banner').children.length,3);
   context.switchView('host');assert.equal($('host-module-countdowns').checked,true);

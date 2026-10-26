@@ -10,6 +10,7 @@ function run(args){const result=spawnSync(process.execPath,args,{cwd:root,stdio:
 function files(dir){return readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?files(path.join(dir,e.name)):[path.join(dir,e.name)]);}
 for(const name of ['server.js',...files('scripts'),...files('public')].filter(f=>f.endsWith('.js')))run(['--check',name]);
 run(['scripts/restore-layout.js','--check']);
+if(existsSync('landing/package.json'))run(['scripts/sync-photobooth.js','--check']);
 await import('../server.js'); // Validate Express, Sharp and SQLite runtime dependencies without starting the app.
 const publicRoot=path.join(root,'public');
 for(const name of files(publicRoot)){

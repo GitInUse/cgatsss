@@ -1,9 +1,12 @@
+import {cameraWidget} from './photobooth-demo-page.js';
 // Reuse the original HTML layout. All executable behavior is supplied by original.js.
 import fs from 'node:fs';
 const source = fs.readFileSync('docs/original-prototype.html', 'utf8');
 let html = source.slice(0, source.lastIndexOf('  <script>')) + '</body></html>\n';
 const custom = html.match(/<style>([\s\S]*?)<\/style>/)[1];
 html = html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<link[^>]*>/g, '').replace(/<style>[\s\S]*?<\/style>/, '<link rel="stylesheet" href="/party/original.css?v=scroll-layout-7"><script defer src="/party/original.js?v=scroll-layout-7"></script>');
+html = html.replace('<script defer src="/party/original.js', '<script defer src="/party/camera-controller.js"></script><script defer src="/party/original.js');
+html = html.replace('</head>', '<link rel="stylesheet" href="/party/camera-widget.css"></head>');
 html = html.replace('</head>', '<link rel="icon" type="image/png" sizes="64x64" href="/party/assets/championship-favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/party/assets/championship-touch.png"></head>');
 html = html.replace(/<div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-500 to-purple-600 flex items-center justify-center text-lg shadow-md shadow-orange-500\/20">\s*📸\s*<\/div>/, '<img src="/party/assets/championship-logo.png" class="championship-page-icon" width="64" height="44" alt="Geech’s Halloween Costume Champion" />');
 html = html.replace(/\bon(click|change|submit)="([^"]*)"/g, (_, event, code) => `data-on${event}="${code}"`);
@@ -85,6 +88,10 @@ function rule(c){
  return '';
 }
 html = html.replace('<input type="hidden" id="host-timezone"', '<fieldset class="space-y-2"><legend class="text-sm font-bold">Event features</legend><label class="block text-xs text-gray-300"><input type="checkbox" id="host-module-countdowns"> Show event countdowns</label><label class="block text-xs text-gray-300"><input type="checkbox" id="host-module-enterContest"> Enter Contest</label><label class="block text-xs text-gray-300"><input type="checkbox" id="host-module-voting"> Voting</label><p class="text-xs text-gray-300">Enter Contest controls guest submissions and edits; host intake stays available. Turning Voting off stops new ballots without removing existing votes.</p><p class="text-xs text-gray-300">Save with the schedule settings. Hiding countdowns does not change when submissions or voting open and close.</p></fieldset><input type="hidden" id="host-timezone"');
+// Separate file selection from live device capture, preserving the existing entry form.
+html=html.replace('<div id="upload-dropzone"', '<div><button id="entry-upload-photo" type="button" class="archive-control">Upload Photo</button><button id="entry-take-photo" type="button" class="archive-control">Take Photo</button><p class="text-xs text-gray-300">Choose an image or use this device’s camera. Review it before submitting the contest entry.</p></div><div id="entry-camera-panel" hidden>'+cameraWidget('entry-camera-')+'</div><div id="upload-dropzone"');
+html=html.replace(' capture="environment"','').replace('class="absolute inset-0 opacity-0 cursor-pointer z-20"','hidden');
+html=html.replace('Tap to Snap Photo or Choose File','Choose Upload Photo or Take Photo above').replace('Uses front or rear camera on phone','JPEG, PNG or WebP, up to 8 MB');
 // Include classes used by the original layout and its replacement renderers.
 const tokens=new Set([...source.matchAll(/class="([^"]+)"/g)].flatMap(m=>m[1].split(/\s+/)).filter(v=>!/[${}]/.test(v)));
 for(const c of ['text-red-300','bg-red-900/60','rounded-lg','p-2','text-amber-300','w-full','hidden','text-gray-400','text-xs','bg-slate-800','p-3','space-y-3','font-bold','text-orange-300'])tokens.add(c);

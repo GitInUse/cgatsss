@@ -23,6 +23,7 @@
     if(name==='host'&&!data?.host){open('host-auth-modal');return;}
     if(name==='enter'&&!canUpload()){status('Photo submissions are closed.');return;}
     if(name==='vote'&&!canVote()){status('Voting is closed.');return;}
+    if(view==='enter'&&name!=='enter')window.clearSelectedPhoto();
     view=name;for(const v of ['main','enter','vote','past-winners','host','info'])$(`view-${v}`).classList.toggle('hidden',v!==name);
     $('archive-panel').classList.toggle('hidden',name!=='host'||!data?.host);
     document.querySelectorAll('.nav-btn').forEach(b=>{b.classList.toggle('text-orange-400',b.dataset.view===name);});
@@ -39,7 +40,7 @@
   async function refresh(){
     while(syncing)await syncing;
     const request=(async()=>{try{
-      data=await api('/api/state');offset=data.serverTime-Date.now();status();render();
+      const previousContestId=data?.contest?.id;data=await api('/api/state');if(previousContestId&&previousContestId!==data.contest?.id)window.clearSelectedPhoto();offset=data.serverTime-Date.now();status();render();
       if(data.host&&!newContest&&loadedContestId!==data.contest?.id){fillHost();loadedContestId=data.contest?.id;}
       if(data.host&&view==='host')await loadHallOfFame();
     }catch(e){status(e.message);}})();
@@ -51,7 +52,7 @@
     if(demoNotice)demoNotice.hidden=!data.demoMode;
     const c=data.contest,openNow=isOpen();
     const cameraInfo=$('camera-demo-info');cameraInfo.hidden=!data.guestDemoAvailable;
-    if(!cameraInfo.children.length){const link=node('a','text-amber-300','Try photo booth demo (camera only)');link.href='/party/photobooth-demo/';cameraInfo.append(link);}
+    if(!cameraInfo.children.length){const link=node('a','text-amber-300','Try photo booth demo (camera only)');link.href='https://idontthinkiwill.com/photobooth';cameraInfo.append(link);}
     const demoInfo=$('guest-demo-info');demoInfo.hidden=!(data.guestDemoAvailable&&c);
     if(!demoInfo.children.length){const link=node('a','text-amber-300','Try guest sign-in demo (fictional email only)');link.href='/party/guest-demo/';demoInfo.append(link);}
     if(view==='enter'&&!canUpload()){window.clearSelectedPhoto();close('entry-info-modal');switchView('main');}
@@ -178,7 +179,7 @@
     try{const value=$('host-pin-input').value.trim();await api('/api/login','POST',{password:value});await refresh();if(!data.host)throw new Error('Sign-in could not be confirmed. Please try again.');$('host-pin-input').value='';close('host-auth-modal');switchView('host');}
     finally{loginInFlight=false;unlock.disabled=false;}
   });
-  window.lockHostSession=action(async()=>{await api('/api/logout','POST',{});archive=null;$('archive-entries').replaceChildren();$('archive-results').replaceChildren();await refresh();switchView('main');});
+  window.lockHostSession=action(async()=>{await api('/api/logout','POST',{});window.clearSelectedPhoto();archive=null;$('archive-entries').replaceChildren();$('archive-results').replaceChildren();await refresh();switchView('main');});
   window.openPinChangeModal=()=>{
     if(!data?.host)return window.openHostAuthModal();
     $('new-pin-input').value='';$('confirm-pin-input').value='';$('password-change-error').textContent='';
@@ -191,8 +192,22 @@
     catch(e){$('password-change-error').textContent=e.message;}finally{button.disabled=false;}
   });
   window.handleEnterButtonClick=()=>switchView('enter');
-  window.handleFileSelect=e=>{photo=e.target.files[0]||null;if(photoURL)URL.revokeObjectURL(photoURL);if(photo){photoURL=URL.createObjectURL(photo);$('image-preview').src=photoURL;close('upload-placeholder');open('image-preview-container');}};
-  window.clearSelectedPhoto=e=>{e?.stopPropagation();photo=null;if(photoURL)URL.revokeObjectURL(photoURL);photoURL=null;$('camera-file-input').value='';open('upload-placeholder');close('image-preview-container');};
+  let entryCamera=null,cameraContestId=null;
+  function stopEntryCamera(){entryCamera?.reset();$('entry-camera-panel').hidden=true;cameraContestId=null;}
+  function selectEntryPhoto(file){
+    if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>8*1024*1024)throw new Error('Choose a JPEG, PNG or WebP photo up to 8 MB.');
+    if(photoURL)URL.revokeObjectURL(photoURL);photo=file;photoURL=URL.createObjectURL(file);$('image-preview').src=photoURL;close('upload-placeholder');open('image-preview-container');
+  }
+  window.handleFileSelect=action(e=>{const file=e.target.files[0];if(!file)return;stopEntryCamera();selectEntryPhoto(file);});
+  window.clearSelectedPhoto=e=>{e?.stopPropagation();stopEntryCamera();photo=null;if(photoURL)URL.revokeObjectURL(photoURL);photoURL=null;$('image-preview').removeAttribute('src');$('camera-file-input').value='';open('upload-placeholder');close('image-preview-container');};
+  if(globalThis.createPhotoBooth)entryCamera=globalThis.createPhotoBooth({prefix:'entry-camera-',onApprove:blob=>{
+    if(!canUpload()||view!=='enter'||data.contest.id!==cameraContestId)throw new Error('Submission is no longer available.');
+    selectEntryPhoto(new File([blob],'camera-photo.jpg',{type:'image/jpeg'}));$('entry-camera-panel').hidden=true;cameraContestId=null;status('Photo attached. Complete the details and submit when ready.');
+  }});
+  $('entry-upload-photo').addEventListener('click',()=>{stopEntryCamera();$('camera-file-input').click();});
+  $('entry-take-photo').addEventListener('click',()=>{if(!canUpload())return;if(!entryCamera){status('Camera capture is unavailable. Use Upload Photo instead.');return;}window.clearSelectedPhoto();cameraContestId=data.contest.id;$('entry-camera-panel').hidden=false;entryCamera?.start();});
+  $('camera-file-input').addEventListener('click',stopEntryCamera);
+  globalThis.addEventListener?.('pagehide',()=>window.clearSelectedPhoto());
   window.handleFormSubmit=action(async e=>{e.preventDefault();if(!photo||photo.size>8*1024*1024)throw new Error('Choose one JPEG, PNG, or WebP photo, up to 8 MB.');const form=new FormData();form.append('name',$('entry-name').value);form.append('category',$('entry-category').value);form.append('caption',$('entry-caption').value);form.append('photo',photo);await api('/api/entries','POST',form);window.clearSelectedPhoto();$('entry-name').value='';$('entry-caption').value='';await refresh();switchView('main');});
   window.handlePostMessage=action(async e=>{e.preventDefault();await api('/api/messages','POST',{author:$('msg-author-input').value||'Anonymous Guest',message:$('msg-text-input').value});$('msg-text-input').value='';await refresh();});
   window.openEntryInfoModal=id=>{const e=[...(data.host?archive?.entries||[]:[]),...data.entries,...data.winners].find(e=>e.id===id);if(!e)return;if(!data.host&&(!e.canEdit||data.phase!=='live'||data.contest?.settings.modules?.enterContest===false)){window.openLightbox(e.photoUrl,`${e.name} — ${e.category}`);return;}editId=id;const c=e.contestId===archive?.contest.id?archive.contest:data.contest;fillSelect('modal-entry-category',c?.id===e.contestId?c.settings.categories:[e.category]);$('modal-entry-name').value=e.name;$('modal-entry-caption').value=e.caption;$('modal-entry-category').value=e.category;const locked=!data.host||!!e.votes||data.winners.some(w=>w.id===id);$('modal-entry-category').disabled=locked;$('entry-category-help').textContent=locked?'Category stays fixed after votes are cast or a winner is published.':'The host can correct the category before this entry receives votes.';open('entry-info-modal');};
