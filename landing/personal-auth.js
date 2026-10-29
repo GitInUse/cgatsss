@@ -1,6 +1,7 @@
 import * as oidc from 'openid-client';
 import {EncryptJWT,jwtDecrypt} from 'jose';
 import {privatePage,loginPage} from './private-pages.js';
+import {dealPage} from './deal-page.js';
 
 const ORIGIN='https://idontthinkiwill.com',ISSUER='https://accounts.google.com';
 const CALLBACK=ORIGIN+'/api/personal/google/callback',SESSION='__Host-personal',FLOW='__Host-google-flow',TTL=43200;
@@ -65,19 +66,24 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
  async function limited(env,key){return (await env.LOGIN_LIMITER.limit({key})).success;}
  async function personalRoutes(request,env){
   const url=new URL(request.url),path=url.pathname;
-  const home=['/home','/home/','/home.html'].includes(path),upload=['/noupload','/noupload/','/noupload.html'].includes(path),login=['/login','/login/','/login.html'].includes(path),api=path.startsWith('/api/personal/');
-  if(!home&&!upload&&!login&&!api)return null;
+  const deals=['/deals','/deals/'].includes(path),home=['/home','/home/','/home.html'].includes(path),upload=['/noupload','/noupload/','/noupload.html'].includes(path),login=['/login','/login/','/login.html'].includes(path),api=path.startsWith('/api/personal/');
+  if(!home&&!upload&&!login&&!deals&&!api)return null;
   if(url.origin!==ORIGIN)return json({error:'Use the main website to sign in.'},403);
   const config=googleConfiguration(env);
-  if(home||upload||login){
+  if(home||upload||login||deals){
    if(!['GET','HEAD'].includes(request.method))return json({error:'Method not allowed.'},405);
    const signedIn=await personalSession(request,env);
-   if(home||upload){
+   if(home||upload||deals){
     if(!signedIn)return config?redirect('/login?next='+encodeURIComponent(upload?'/noupload':'/home')):privateResponse(request.method==='HEAD'?null:loginPage(false),503,{'Content-Type':'text/html; charset=utf-8'});
-    return privateResponse(request.method==='HEAD'?null:privatePage(upload?'upload':'home'),200,{'Content-Type':'text/html; charset=utf-8'});
+    return privateResponse(request.method==='HEAD'?null:(deals?dealPage:privatePage(upload?'upload':'home')),200,{'Content-Type':'text/html; charset=utf-8'});
    }
    if(signedIn)return redirect(safeDestination(url.searchParams.get('next')));
    return privateResponse(request.method==='HEAD'?null:loginPage(!!config,safeDestination(url.searchParams.get('next')),url.searchParams.has('error')),200,{'Content-Type':'text/html; charset=utf-8'});
+  }
+  if(path==='/api/personal/deals'&&request.method==='GET'){
+   if(!await personalSession(request,env))return json({error:'Sign in required.'},401);
+   // Reserved for a verified, authenticated deal-ingestion integration. No invented offers.
+   return json({deals:[]});
   }
   if(path==='/api/personal/session'&&request.method==='GET')return json({authenticated:await personalSession(request,env),configured:!!config,storageReady:!!env.NO_MEMES});
   if(path==='/api/personal/google/start'&&request.method==='GET'){
