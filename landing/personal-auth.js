@@ -82,8 +82,12 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
   }
   if(path==='/api/personal/deals'&&request.method==='GET'){
    if(!await personalSession(request,env))return json({error:'Sign in required.'},401);
-   // Reserved for a verified, authenticated deal-ingestion integration. No invented offers.
-   return json({deals:[]});
+   // Private read-only feed. A future verified deal collector can write this KV key.
+   let saved = [];
+   if (env.NO_MEMES) {
+    try { const value = await env.NO_MEMES.get('deal-hunter:feed','json'); if (Array.isArray(value)) saved = value.slice(0,100).filter(d => d && typeof d.name==='string' && typeof d.price==='string' && typeof d.url==='string' && /^https:\\/\\//.test(d.url)).map(d => ({name:d.name.slice(0,130),description:String(d.description||'').slice(0,140),price:d.price.slice(0,32),typicalPrice:String(d.typicalPrice||'').slice(0,32),discount:String(d.discount||'').slice(0,25),conditions:String(d.conditions||'').slice(0,160),retailer:String(d.retailer||'').slice(0,50),category:String(d.category||'').slice(0,30),url:d.url.slice(0,1000)})); } catch { /* Failed or malformed feed: show no unverified offers. */ }
+   }
+   return json({deals:saved});
   }
   if(path==='/api/personal/session'&&request.method==='GET')return json({authenticated:await personalSession(request,env),configured:!!config,storageReady:!!env.NO_MEMES});
   if(path==='/api/personal/google/start'&&request.method==='GET'){
