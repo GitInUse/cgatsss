@@ -14,15 +14,15 @@ function show(){
   const thumb=node('div','thumb fallback','🏷️');
   if(safeUrl(deal.imageUrl)){const img=document.createElement('img');img.src=deal.imageUrl;img.alt='';img.loading='lazy';img.referrerPolicy='no-referrer';img.width=76;img.height=76;img.addEventListener('error',()=>img.remove(),{once:true});thumb.append(img);}
   const detail=node('div','details','');
-  detail.append(node('p','retailer',deal.retailer+(deal.drawing?' · Drawing / chance to purchase':'')),node('h2','name',deal.name));
+  detail.append(node('p','retailer',deal.retailer+(deal.drawing?' · Drawing / chance to purchase':' · Checkout unverified')),node('h2','name',deal.name));
   if(deal.description)detail.append(node('p','desc',deal.description));
   if(deal.ratingVerified&&Number.isFinite(deal.rating)&&Number.isInteger(deal.reviewCount))detail.append(node('p','fine','★ '+deal.rating+' · '+deal.reviewCount+' reviews'));
   const prices=node('div','price','');prices.append(node('strong','',deal.price||'Price not reported'));
   // Only show savings when an upstream adapter supplies a verified recent-price basis.
   if(deal.typicalPriceVerified&&Number.isFinite(deal.typicalPriceValue)&&Number.isFinite(deal.priceValue)&&deal.typicalPriceValue>deal.priceValue){prices.append(node('del','old','$'+deal.typicalPriceValue.toFixed(2)),node('span','badge',Math.floor((1-deal.priceValue/deal.typicalPriceValue)*100)+'% OFF'));}
-  detail.append(prices,node('p','verification',deal.glitch?'Possible price glitch. Orders may be canceled.':'Reported · checkout unverified'));
+  detail.append(prices);if(deal.glitch)detail.append(node('p','verification','Possible price glitch. Orders may be canceled.'));
   if(deal.conditions)detail.append(node('p','fine',deal.conditions));
-  const time=Date.parse(deal.lastCheckedAt);if(Number.isFinite(time))detail.append(node('p','checked','Source checked '+new Date(time).toLocaleString()));
+  const time=Date.parse(deal.lastCheckedAt);if(Number.isFinite(time))card.title='Source checked '+new Date(time).toLocaleString();
   const links=node('div','deal-links','');if(safeUrl(deal.url))links.append(link(deal.url,deal.directRetailer?'View on '+deal.retailer:'Shop offer via Slickdeals'));
   if(safeUrl(deal.sourceUrl))links.append(link(deal.sourceUrl,'Slickdeals report ↗'));
   detail.append(links);card.append(thumb,detail);root.append(card);
