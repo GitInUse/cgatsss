@@ -6,6 +6,9 @@ import {dealPage} from './deal-page.js';
 const ORIGIN='https://idontthinkiwill.com',ISSUER='https://accounts.google.com';
 const CALLBACK=ORIGIN+'/api/personal/google/callback',SESSION='__Host-personal',FLOW='__Host-google-flow',TTL=43200;
 const encoder=new TextEncoder();
+function safeDealUrl(value){
+ try{const url=new URL(value);return value.length<=1000&&url.protocol==='https:'&&!url.username&&!url.password;}catch{return false;}
+}
 const security={
  'Cache-Control':'no-store, private, max-age=0','Pragma':'no-cache','Vary':'Cookie',
  'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY',
@@ -23,7 +26,7 @@ function getCookie(request,name){
  const values=(request.headers.get('Cookie')||'').split(';').map(v=>v.trim()).filter(v=>v.startsWith(name+'='));
  return values.length===1?values[0].slice(name.length+1):null;
 }
-export const safeDestination=value=>value==='/noupload'?'/noupload':'/home';
+export const safeDestination=value=>['/noupload','/deals'].includes(value)?value:'/home';
 export function googleConfiguration(env){
  if(!/^[a-z0-9-]+\.apps\.googleusercontent\.com$/.test(env.GOOGLE_CLIENT_ID||'')||typeof env.GOOGLE_CLIENT_SECRET!=='string'||env.GOOGLE_CLIENT_SECRET.length<16||!env.NO_MEMES||!env.LOGIN_LIMITER)return null;
  let emails;try{emails=JSON.parse(env.OWNER_EMAILS);}catch{return null;}
@@ -66,7 +69,7 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
  async function limited(env,key){return (await env.LOGIN_LIMITER.limit({key})).success;}
  async function personalRoutes(request,env){
   const url=new URL(request.url),path=url.pathname;
-  const deals=['/deals','/deals/'].includes(path),home=['/home','/home/','/home.html'].includes(path),upload=['/noupload','/noupload/','/noupload.html'].includes(path),login=['/login','/login/','/login.html'].includes(path),api=path.startsWith('/api/personal/');
+  const deals=['/deals','/deals/','/deals.html'].includes(path),home=['/home','/home/','/home.html'].includes(path),upload=['/noupload','/noupload/','/noupload.html'].includes(path),login=['/login','/login/','/login.html'].includes(path),api=path.startsWith('/api/personal/');
   if(!home&&!upload&&!login&&!deals&&!api)return null;
   if(url.origin!==ORIGIN)return json({error:'Use the main website to sign in.'},403);
   const config=googleConfiguration(env);
@@ -74,7 +77,7 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
    if(!['GET','HEAD'].includes(request.method))return json({error:'Method not allowed.'},405);
    const signedIn=await personalSession(request,env);
    if(home||upload||deals){
-    if(!signedIn)return config?redirect('/login?next='+encodeURIComponent(upload?'/noupload':'/home')):privateResponse(request.method==='HEAD'?null:loginPage(false),503,{'Content-Type':'text/html; charset=utf-8'});
+    if(!signedIn)return config?redirect('/login?next='+encodeURIComponent(deals?'/deals':upload?'/noupload':'/home')):privateResponse(request.method==='HEAD'?null:loginPage(false),503,{'Content-Type':'text/html; charset=utf-8'});
     return privateResponse(request.method==='HEAD'?null:(deals?dealPage:privatePage(upload?'upload':'home')),200,{'Content-Type':'text/html; charset=utf-8'});
    }
    if(signedIn)return redirect(safeDestination(url.searchParams.get('next')));
@@ -85,7 +88,7 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
    // Private read-only feed. A future verified deal collector can write this KV key.
    let saved = [];
    if (env.NO_MEMES) {
-    try { const value = await env.NO_MEMES.get('deal-hunter:feed','json'); if (Array.isArray(value)) saved = value.slice(0,100).filter(d => d && typeof d.name==='string' && typeof d.price==='string' && typeof d.url==='string' && /^https:\\/\\//.test(d.url)).map(d => ({name:d.name.slice(0,130),description:String(d.description||'').slice(0,140),price:d.price.slice(0,32),typicalPrice:String(d.typicalPrice||'').slice(0,32),discount:String(d.discount||'').slice(0,25),conditions:String(d.conditions||'').slice(0,160),retailer:String(d.retailer||'').slice(0,50),category:String(d.category||'').slice(0,30),url:d.url.slice(0,1000)})); } catch { /* Failed or malformed feed: show no unverified offers. */ }
+    try { const value = await env.NO_MEMES.get('deal-hunter:feed','json'); if (Array.isArray(value)) saved = value.slice(0,100).filter(d => d && typeof d.name==='string' && typeof d.price==='string' && typeof d.url==='string' && safeDealUrl(d.url)).map(d => ({name:d.name.slice(0,130),description:String(d.description||'').slice(0,140),price:d.price.slice(0,32),typicalPrice:String(d.typicalPrice||'').slice(0,32),discount:String(d.discount||'').slice(0,25),conditions:String(d.conditions||'').slice(0,160),retailer:String(d.retailer||'').slice(0,50),category:String(d.category||'').slice(0,30),url:d.url.slice(0,1000)})); } catch { /* Failed or malformed feed: show no unverified offers. */ }
    }
    return json({deals:saved});
   }

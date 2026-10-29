@@ -48,7 +48,7 @@ async function begin(f,next='/home'){
 }
 async function login(f,next='/home'){
  const started=await begin(f,next),response=await f.handle(req(started.path,'GET',undefined,started.flow),f.env);
- assert.equal(response.status,303);assert.equal(response.headers.get('Location'),next==='/noupload'?'/noupload':'/home');
+ assert.equal(response.status,303);assert.equal(response.headers.get('Location'),['/noupload','/deals'].includes(next)?next:'/home');
  const cookies=response.headers.getSetCookie();assert.equal(cookies.length,2);
  const session=cookies.find(c=>c.startsWith('__Host-personal='));
  assert.match(session,/^__Host-personal=[a-f0-9]{64}; Path=\/; Secure; HttpOnly; SameSite=Lax; Max-Age=43200$/);
@@ -219,4 +219,43 @@ test('booth selection rejects arbitrary upstream URLs and fails safely on unavai
  }
  const f=fixture({boothFetcher:async()=>{throw Error('Should never fetch');}});
  assert.equal((await f.handle(req('/api/photobooth/context','POST',JSON.stringify({code:'1234',url:'https://evil.test'}),'',{'Content-Type':'application/json'}),f.env)).status,400);
+});
+
+test('Deal Hunter stays private and Google sign-in returns to the requested dashboard',async()=>{
+ const f=fixture();
+ for(const path of ['/deals','/deals/','/deals.html']){
+  for(const method of ['GET','HEAD']){
+   const response=await f.handle(req(path,method),f.env);
+   assert.equal(response.status,303);
+   assert.equal(response.headers.get('Location'),'/login?next=%2Fdeals');
+  }
+ }
+ assert.equal((await f.handle(req('/api/personal/deals'),f.env)).status,401);
+ const page=await (await f.handle(req('/login?next=%2Fdeals'),f.env)).text();
+ assert.match(page,/google\/start\?next=%2Fdeals/);
+ const session=await login(f,'/deals');
+ const home=await (await f.handle(req('/home','GET',undefined,session),f.env)).text();
+ assert.match(home,/href="\/deals"/);
+ assert.match(home,/https:\/\/geech.idontthinkiwill.com\/party\//);
+ for(const path of ['/deals','/deals/','/deals.html']){
+  const response=await f.handle(req(path,'GET',undefined,session),f.env);
+  assert.equal(response.status,200);assert.match(await response.text(),/Deal Hunter/);
+  assert.match(response.headers.get('Cache-Control'),/no-store/);
+  assert.equal(await (await f.handle(req(path,'HEAD',undefined,session),f.env)).text(),'');
+ }
+ await f.handle(req('/api/personal/logout','POST',undefined,session),f.env);
+ assert.equal((await f.handle(req('/api/personal/deals','GET',undefined,session),f.env)).status,401);
+});
+
+test('private deal feed accepts HTTPS links and rejects unsafe or malformed records',async()=>{
+ const f=fixture(),session=await login(f);
+ const get=async()=>f.handle(req('/api/personal/deals','GET',undefined,session),f.env);
+ assert.deepEqual((await (await get()).json()).deals,[]);
+ const valid={name:'Test fixture only',price:'$10',url:'https://www.example.test/product',category:'tools'};
+ f.data.set('deal-hunter:feed',{value:JSON.stringify([valid,{...valid,url:'javascript:alert(1)'},{...valid,url:'http://example.test'},{...valid,url:'https://user:secret@example.test/'},{...valid,url:'https://example.test/'+'x'.repeat(1000)},null,{name:'Missing price',url:valid.url}])});
+ const response=await get(),data=await response.json();
+ assert.equal(response.status,200);assert.equal(data.deals.length,1);
+ assert.equal(data.deals[0].url,valid.url);assert.match(response.headers.get('Cache-Control'),/no-store/);
+ f.data.set('deal-hunter:feed',{value:'broken json'});
+ assert.deepEqual((await (await get()).json()).deals,[]);
 });
