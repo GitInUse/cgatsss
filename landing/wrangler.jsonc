@@ -9,6 +9,7 @@
     "run_worker_first": true
   },
   "workers_dev": false,
+  "triggers": {"crons": ["*/15 * * * *"]},
   "preview_urls": false,
   "routes": [
     {

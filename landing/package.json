@@ -3,10 +3,12 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "node ../scripts/sync-photobooth.js --check && node --test test-worker.mjs"
+    "build": "node ../scripts/sync-photobooth.js --check && node --test test-worker.mjs test-deals.mjs"
   },
   "type": "module",
   "dependencies": {
+    "@block65/webcrypto-web-push": "2.0.0",
+    "fast-xml-parser": "5.11.2",
     "jose": "6.2.13",
     "openid-client": "6.8.8"
   }

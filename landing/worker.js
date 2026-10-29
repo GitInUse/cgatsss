@@ -3,6 +3,7 @@ import {partyEntryRoute} from './party-directory.js';
 import {partyPage,partyPageHeaders} from './party-page.js';
 import {renderPhotoBoothPage,boothHeaders} from '../scripts/photobooth-demo-page.js';
 import {createPersonalAuth} from './personal-auth.js';
+import {scheduledDeals} from './deal-api.js';
 const MAX_FILE=8*1024*1024;
 const seeds=[{url:'/assets/no.gif',alt:'No.'},{url:'/assets/bugs-no.png',alt:'No.'}];let catalogue;
 const json=(value,status=200,headers={})=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
@@ -26,4 +27,4 @@ export function createHandler(options={}){const {personalRoutes,personalSession}
  if(path==='/api/no-admin/upload'){if(!await personalSession(request,env))return json({error:'Personal sign-in required.'},401);if(!env.NO_MEMES)return json({error:'Meme storage is not connected yet.'},503);const bytes=await readLimited(request,MAX_FILE+65536);const form=await new Response(bytes,{headers:{'Content-Type':request.headers.get('Content-Type')||''}}).formData();const file=form.get('image');if(!file||typeof file.arrayBuffer!=='function'||!file.size||file.size>MAX_FILE)return json({error:'Choose a GIF, PNG, JPEG or WebP image up to 8 MB.'},400);const content=await file.arrayBuffer(),type=imageType(new Uint8Array(content));if(!type)return json({error:'Only GIF, PNG, JPEG and WebP image files are allowed.'},400);const id=crypto.randomUUID();await env.NO_MEMES.put('image:'+id,content,{metadata:{type,created:new Date().toISOString()}});catalogue=null;return json({ok:true,url:'/no-media/'+id},201);}
  return json({error:'Not found.'},404);
  }catch(error){if(/Choose an image|Choose a GIF/.test(error.message))return json({error:error.message},413);return json({error:'That could not be completed. Please wait a moment and try again.'},503);}};}
-export default {fetch:createHandler()};
+export default {fetch:createHandler(),async scheduled(controller,env){await scheduledDeals(env);}};

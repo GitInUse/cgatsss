@@ -247,15 +247,18 @@ test('Deal Hunter stays private and Google sign-in returns to the requested dash
  assert.equal((await f.handle(req('/api/personal/deals','GET',undefined,session),f.env)).status,401);
 });
 
-test('private deal feed accepts HTTPS links and rejects unsafe or malformed records',async()=>{
+test('private deal feed rejects unsafe records and exposes no push secrets',async()=>{
  const f=fixture(),session=await login(f);
  const get=async()=>f.handle(req('/api/personal/deals','GET',undefined,session),f.env);
  assert.deepEqual((await (await get()).json()).deals,[]);
- const valid={name:'Test fixture only',price:'$10',url:'https://www.example.test/product',category:'tools'};
- f.data.set('deal-hunter:feed',{value:JSON.stringify([valid,{...valid,url:'javascript:alert(1)'},{...valid,url:'http://example.test'},{...valid,url:'https://user:secret@example.test/'},{...valid,url:'https://example.test/'+'x'.repeat(1000)},null,{name:'Missing price',url:valid.url}])});
+ const valid={id:'sd-1',name:'Test fixture only',price:'$10',url:'https://www.example.test/product',category:'tools',lastCheckedAt:new Date().toISOString()};
+ f.data.set('deal-hunter:catalog:v1',{value:JSON.stringify({deals:[{...valid,privateKey:'must not leak'},{...valid,id:'sd-2',url:'javascript:alert(1)'},{...valid,id:'sd-3',url:'http://example.test'},null]})});
  const response=await get(),data=await response.json();
- assert.equal(response.status,200);assert.equal(data.deals.length,1);
- assert.equal(data.deals[0].url,valid.url);assert.match(response.headers.get('Cache-Control'),/no-store/);
- f.data.set('deal-hunter:feed',{value:'broken json'});
- assert.deepEqual((await (await get()).json()).deals,[]);
+ assert.equal(response.status,200);assert.equal(data.deals.length,1);assert.equal(data.deals[0].url,valid.url);
+ assert.equal(data.deals[0].privateKey,undefined);assert.equal(data.pushPublicKey,null);
+ assert.match(response.headers.get('Cache-Control'),/no-store/);
+ const csp=(await f.handle(req('/deals','GET',undefined,session),f.env)).headers.get('Content-Security-Policy');assert.match(csp,/https:\/\/static.slickdealscdn.com/);
+ assert.doesNotMatch((await f.handle(req('/home','GET',undefined,session),f.env)).headers.get('Content-Security-Policy'),/slickdealscdn/);
+ assert.equal((await f.handle(req('/api/personal/deals/subscribe','POST','{}',session,{Origin:'https://evil.test'}),f.env)).status,403);
+ assert.equal((await f.handle(req('/api/personal/deals/subscribe','POST','{}'),f.env)).status,401);
 });

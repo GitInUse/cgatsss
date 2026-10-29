@@ -2,13 +2,11 @@ import * as oidc from 'openid-client';
 import {EncryptJWT,jwtDecrypt} from 'jose';
 import {privatePage,loginPage} from './private-pages.js';
 import {dealPage} from './deal-page.js';
+import {dealApi} from './deal-api.js';
 
 const ORIGIN='https://idontthinkiwill.com',ISSUER='https://accounts.google.com';
 const CALLBACK=ORIGIN+'/api/personal/google/callback',SESSION='__Host-personal',FLOW='__Host-google-flow',TTL=43200;
 const encoder=new TextEncoder();
-function safeDealUrl(value){
- try{const url=new URL(value);return value.length<=1000&&url.protocol==='https:'&&!url.username&&!url.password;}catch{return false;}
-}
 const security={
  'Cache-Control':'no-store, private, max-age=0','Pragma':'no-cache','Vary':'Cookie',
  'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY',
@@ -78,20 +76,12 @@ export function createPersonalAuth({fetcher=fetch,now=()=>Date.now()}={}){
    const signedIn=await personalSession(request,env);
    if(home||upload||deals){
     if(!signedIn)return config?redirect('/login?next='+encodeURIComponent(deals?'/deals':upload?'/noupload':'/home')):privateResponse(request.method==='HEAD'?null:loginPage(false),503,{'Content-Type':'text/html; charset=utf-8'});
-    return privateResponse(request.method==='HEAD'?null:(deals?dealPage:privatePage(upload?'upload':'home')),200,{'Content-Type':'text/html; charset=utf-8'});
+    return privateResponse(request.method==='HEAD'?null:(deals?dealPage:privatePage(upload?'upload':'home')),200,{'Content-Type':'text/html; charset=utf-8',...(deals?{'Content-Security-Policy':security['Content-Security-Policy'].replace("img-src 'self' blob:","img-src 'self' blob: https://static.slickdealscdn.com")}: {})});
    }
    if(signedIn)return redirect(safeDestination(url.searchParams.get('next')));
    return privateResponse(request.method==='HEAD'?null:loginPage(!!config,safeDestination(url.searchParams.get('next')),url.searchParams.has('error')),200,{'Content-Type':'text/html; charset=utf-8'});
   }
-  if(path==='/api/personal/deals'&&request.method==='GET'){
-   if(!await personalSession(request,env))return json({error:'Sign in required.'},401);
-   // Private read-only feed. A future verified deal collector can write this KV key.
-   let saved = [];
-   if (env.NO_MEMES) {
-    try { const value = await env.NO_MEMES.get('deal-hunter:feed','json'); if (Array.isArray(value)) saved = value.slice(0,100).filter(d => d && typeof d.name==='string' && typeof d.price==='string' && typeof d.url==='string' && safeDealUrl(d.url)).map(d => ({name:d.name.slice(0,130),description:String(d.description||'').slice(0,140),price:d.price.slice(0,32),typicalPrice:String(d.typicalPrice||'').slice(0,32),discount:String(d.discount||'').slice(0,25),conditions:String(d.conditions||'').slice(0,160),retailer:String(d.retailer||'').slice(0,50),category:String(d.category||'').slice(0,30),url:d.url.slice(0,1000)})); } catch { /* Failed or malformed feed: show no unverified offers. */ }
-   }
-   return json({deals:saved});
-  }
+  const dealResponse=await dealApi(request,env,{json,personalSession,fetcher,now});if(dealResponse)return dealResponse;
   if(path==='/api/personal/session'&&request.method==='GET')return json({authenticated:await personalSession(request,env),configured:!!config,storageReady:!!env.NO_MEMES});
   if(path==='/api/personal/google/start'&&request.method==='GET'){
    if(!config)return json({error:'Google sign-in is awaiting private setup.'},503);

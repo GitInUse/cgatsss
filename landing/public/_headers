@@ -3,3 +3,6 @@
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY
   Content-Security-Policy: default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+
+/deals-sw.js
+  Cache-Control: no-cache
